@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --background: #101418;
+  --foreground: #e0e3e8;
+  --surface-low: #181c20;
+  --surface-high: #262a2f;
+  --surface-highest: #31353a;
+  --primary: #40fe6d;
+  --primary-container: #00e054;
+  --on-primary: #00390f;
+  --text-muted: #bacbb6;
+  --ghost-outline: rgb(60 75 58 / 0.15);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-manrope);
+  --font-body: var(--font-inter);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #101418;
+    --foreground: #e0e3e8;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-manrope), sans-serif;
+  background-image:
+    radial-gradient(circle at 18% 14%, rgb(64 254 109 / 0.08), transparent 38%),
+    radial-gradient(circle at 86% 22%, rgb(64 188 244 / 0.08), transparent 34%),
+    linear-gradient(180deg, #0b1015 0%, #101418 58%, #0c1116 100%);
+}
+
+.font-body {
+  font-family: var(--font-inter), sans-serif;
+}
+
+.brand-glow {
+  color: var(--primary);
+  text-shadow: 0 0 22px rgb(64 254 109 / 0.25);
+}
+
+.cta-gradient {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%);
+}
