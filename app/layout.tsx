@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Inter, Manrope, Roboto } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import Link from "next/link";
 import { AuthButton } from "@/components/auth-button";
-import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -26,24 +26,11 @@ export const metadata: Metadata = {
   description: "Base del blog para analisis de peliculas sobre inteligencia artificial",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const userName =
-    user?.user_metadata?.full_name ??
-    user?.user_metadata?.name ??
-    user?.email ??
-    undefined;
-
-  const userAvatar = user?.user_metadata?.avatar_url as string | undefined;
-
   return (
     <html
       lang="es"
@@ -57,10 +44,11 @@ export default async function RootLayout({
                 Artificial Stories
               </Link>
             </div>
-            <AuthButton isAuthenticated={Boolean(user)} userName={userName} userAvatar={userAvatar} />
+            <AuthButton />
           </div>
         </header>
         <main className="flex-1">{children}</main>
+        <SpeedInsights />
       </body>
     </html>
   );

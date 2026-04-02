@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import MarkdownRenderer from "@/components/markdown-renderer";
+import dynamic from "next/dynamic";
 import {
   Bold,
   Heading,
@@ -14,6 +14,8 @@ import {
   Quote,
   Table,
 } from "lucide-react";
+
+const MarkdownRenderer = dynamic(() => import("@/components/markdown-renderer"));
 
 const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
 

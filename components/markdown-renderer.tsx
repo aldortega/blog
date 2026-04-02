@@ -1,12 +1,56 @@
+import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+
+/* eslint-disable @next/next/no-img-element */
 
 type MarkdownRendererProps = {
   content: string;
   className?: string;
   compact?: boolean;
 };
+
+const STATIC_IMAGE_HOSTS = new Set([
+  "image.tmdb.org",
+  "lh3.googleusercontent.com",
+  "ui-avatars.com",
+]);
+
+function isSafeHttpUrl(src: string): boolean {
+  return /^https?:\/\//.test(src);
+}
+
+function resolveSupabaseStorageHost(): string | null {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) {
+    return null;
+  }
+
+  try {
+    return new URL(supabaseUrl).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function shouldUseNextImage(src: string): boolean {
+  if (src.startsWith("/")) {
+    return true;
+  }
+
+  if (!isSafeHttpUrl(src)) {
+    return false;
+  }
+
+  try {
+    const { hostname } = new URL(src);
+    const supabaseHost = resolveSupabaseStorageHost();
+    return STATIC_IMAGE_HOSTS.has(hostname) || hostname === supabaseHost;
+  } catch {
+    return false;
+  }
+}
 
 export default function MarkdownRenderer({
   content,
@@ -53,15 +97,38 @@ export default function MarkdownRenderer({
             );
           },
           hr: () => <hr className="my-8 border-[#3c4b3a]/40" />,
-          img: ({ src, alt }) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={src ?? ""}
-              alt={alt ?? "Imagen del contenido"}
-              loading="lazy"
-              className="my-6 w-full rounded-xl border border-[#3c4b3a]/30 object-cover"
-            />
-          ),
+          img: ({ src, alt, width, height }) => {
+            const imageSrc = typeof src === "string" ? src : "";
+            const imageAlt = alt ?? "Imagen del contenido";
+            const parsedWidth = Number(width);
+            const parsedHeight = Number(height);
+            const safeWidth = Number.isFinite(parsedWidth) && parsedWidth > 0 ? parsedWidth : 1200;
+            const safeHeight = Number.isFinite(parsedHeight) && parsedHeight > 0 ? parsedHeight : 675;
+
+            if (shouldUseNextImage(imageSrc)) {
+              return (
+                <Image
+                  src={imageSrc}
+                  alt={imageAlt}
+                  width={safeWidth}
+                  height={safeHeight}
+                  loading="lazy"
+                  sizes="(max-width: 768px) 100vw, 900px"
+                  className="my-6 h-auto w-full rounded-xl border border-[#3c4b3a]/30 object-cover"
+                />
+              );
+            }
+
+            // Fallback for arbitrary markdown hosts not whitelisted in next/image config.
+            return (
+              <img
+                src={imageSrc}
+                alt={imageAlt}
+                loading="lazy"
+                className="my-6 w-full rounded-xl border border-[#3c4b3a]/30 object-cover"
+              />
+            );
+          },
           table: ({ children }) => (
             <div className="my-6 overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm">{children}</table>

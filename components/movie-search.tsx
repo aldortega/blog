@@ -118,7 +118,7 @@ export default function MovieSearch({ initialMovie = null }: MovieSearchProps) {
           {selectedPosterUrl ? (
             <Image
               src={selectedPosterUrl}
-              quality={100}
+              quality={80}
               alt={`Portada de ${selectedMovie?.title ?? "pelicula seleccionada"}`}
               fill
               sizes="102px"

@@ -18,5 +18,26 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL("/auth/error", requestUrl.origin));
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    const displayName =
+      String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? "").trim() ||
+      user.email?.split("@")[0] ||
+      null;
+    const avatarUrl =
+      typeof user.user_metadata?.avatar_url === "string"
+        ? user.user_metadata.avatar_url
+        : null;
+
+    await supabase.from("profiles").upsert({
+      id: user.id,
+      display_name: displayName,
+      avatar_url: avatarUrl,
+    });
+  }
+
   return NextResponse.redirect(new URL(safeNext, requestUrl.origin));
 }

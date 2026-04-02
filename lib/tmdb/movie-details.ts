@@ -1,3 +1,5 @@
+import { unstable_cache } from "next/cache";
+
 type TmdbMovieDetailsResponse = {
   title?: string;
   release_date?: string;
@@ -19,13 +21,10 @@ export type TmdbMovieDetails = {
   director: string | null;
 };
 
-export async function fetchTmdbMovieDetails(tmdbId: number): Promise<TmdbMovieDetails | null> {
-  const apiKey = process.env.TMDB_API_KEY;
+const TMDB_MOVIE_DETAILS_REVALIDATE_SECONDS = 60 * 60 * 6;
 
-  if (!apiKey || !Number.isFinite(tmdbId) || tmdbId <= 0) {
-    return null;
-  }
-
+const fetchTmdbMovieDetailsCached = unstable_cache(
+  async (tmdbId: number, apiKey: string): Promise<TmdbMovieDetails | null> => {
   const tmdbUrl = new URL(`https://api.themoviedb.org/3/movie/${tmdbId}`);
   tmdbUrl.searchParams.set("api_key", apiKey);
   tmdbUrl.searchParams.set("append_to_response", "credits");
@@ -35,7 +34,9 @@ export async function fetchTmdbMovieDetails(tmdbId: number): Promise<TmdbMovieDe
     headers: {
       Accept: "application/json",
     },
-    cache: "no-store",
+    next: {
+      revalidate: TMDB_MOVIE_DETAILS_REVALIDATE_SECONDS,
+    },
   });
 
   if (!response.ok) {
@@ -58,4 +59,17 @@ export async function fetchTmdbMovieDetails(tmdbId: number): Promise<TmdbMovieDe
     posterPath: payload.poster_path?.trim() || null,
     director,
   };
+  },
+  ["tmdb-movie-details"],
+  { revalidate: TMDB_MOVIE_DETAILS_REVALIDATE_SECONDS },
+);
+
+export async function fetchTmdbMovieDetails(tmdbId: number): Promise<TmdbMovieDetails | null> {
+  const apiKey = process.env.TMDB_API_KEY;
+
+  if (!apiKey || !Number.isFinite(tmdbId) || tmdbId <= 0) {
+    return null;
+  }
+
+  return fetchTmdbMovieDetailsCached(tmdbId, apiKey);
 }

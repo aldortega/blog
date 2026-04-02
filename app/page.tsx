@@ -1,6 +1,11 @@
-import { createClient } from "@/lib/supabase/server";
+import { publicServerClient } from "@/lib/supabase/public-server";
+import { CreatePostCta } from "@/components/create-post-cta";
 import Image from "next/image";
 import Link from "next/link";
+
+export const revalidate = 300;
+
+const HOME_POSTS_LIMIT = 30;
 
 type HomePost = {
   id: string;
@@ -10,30 +15,47 @@ type HomePost = {
   image_path: string | null;
 };
 
-type HomeRatingRow = {
+type HomeRatingAggregateRow = {
   post_id: string;
   score: number | string;
 };
 
 export default async function Home() {
-  const supabase = await createClient();
+  const supabase = publicServerClient;
 
-  const [{ data: posts }, { data: ratings }] = await Promise.all([
-    supabase
-      .from("posts")
-      .select("id, title, excerpt, created_at, image_path")
-      .order("created_at", { ascending: false }),
-    supabase.from("ratings").select("post_id, score"),
-  ]);
+  const { data: posts } = await supabase
+    .from("posts")
+    .select("id, title, excerpt, created_at, image_path")
+    .order("created_at", { ascending: false })
+    .limit(HOME_POSTS_LIMIT);
 
   const postList = (posts ?? []) as HomePost[];
-  const ratingRows = (ratings ?? []) as HomeRatingRow[];
-  const ratingByPost = new Map<string, { sum: number; count: number }>();
+  const postIds = postList.map((post) => post.id);
+  const ratingAggregateQuery =
+    postIds.length === 0
+      ? Promise.resolve({ data: [] as HomeRatingAggregateRow[] })
+      : supabase
+          .from("ratings")
+          .select("post_id, score")
+          .in("post_id", postIds);
+  const { data: ratingAggregates } = await ratingAggregateQuery;
+  const ratingRows = (ratingAggregates ?? []) as HomeRatingAggregateRow[];
+  const ratingByPost = new Map<
+    string,
+    {
+      ratingsCount: number;
+      scoreSum: number;
+    }
+  >();
 
   for (const rating of ratingRows) {
-    const current = ratingByPost.get(rating.post_id) ?? { sum: 0, count: 0 };
-    current.sum += Number(rating.score);
-    current.count += 1;
+    const score = Number(rating.score);
+    if (!Number.isFinite(score)) {
+      continue;
+    }
+    const current = ratingByPost.get(rating.post_id) ?? { ratingsCount: 0, scoreSum: 0 };
+    current.ratingsCount += 1;
+    current.scoreSum += score;
     ratingByPost.set(rating.post_id, current);
   }
 
@@ -42,8 +64,8 @@ export default async function Home() {
       ? supabase.storage.from("post-images").getPublicUrl(post.image_path).data.publicUrl
       : null;
     const rating = ratingByPost.get(post.id);
-    const ratingsCount = rating?.count ?? 0;
-    const averageRating = rating && rating.count > 0 ? rating.sum / rating.count : null;
+    const ratingsCount = rating?.ratingsCount ?? 0;
+    const averageRating = rating && rating.ratingsCount > 0 ? rating.scoreSum / rating.ratingsCount : null;
 
     return {
       ...post,
@@ -89,14 +111,8 @@ export default async function Home() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-            <Link
-              href="/nuevo-post"
-              className="cta-gradient rounded-xl px-5 py-2.5 text-sm font-semibold text-[var(--on-primary)] transition hover:brightness-105"
-            >
-              Crear post
-            </Link>
-
+          <div className="flex w-full flex-wrap items-center justify-center gap-3 sm:w-auto sm:justify-start lg:justify-end">
+            <CreatePostCta />
           </div>
         </section>
 
@@ -147,12 +163,7 @@ export default async function Home() {
               Publica el primer analisis para empezar a construir el archivo
               editorial del blog.
             </p>
-            <Link
-              href="/nuevo-post"
-              className="cta-gradient mt-7 inline-flex rounded-xl px-5 py-2.5 text-sm font-semibold text-[var(--on-primary)]"
-            >
-              Escribir primer post
-            </Link>
+            <CreatePostCta label="Escribir primer post" className="mt-7 px-5 sm:px-6" />
           </section>
         )}
 

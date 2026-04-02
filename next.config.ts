@@ -15,7 +15,7 @@ if (supabaseUrl) {
 
 const nextConfig: NextConfig = {
   images: {
-    qualities: [75, 100],
+    qualities: [75,80,85, 100],
     remotePatterns: [
       ...remotePatterns,
       {

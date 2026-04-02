@@ -8,6 +8,8 @@ type TmdbMovieResult = {
   poster_path?: string;
 };
 
+const TMDB_SEARCH_REVALIDATE_SECONDS = 120;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("query")?.trim() ?? "";
@@ -32,7 +34,9 @@ export async function GET(request: Request) {
     headers: {
       Accept: "application/json",
     },
-    cache: "no-store",
+    next: {
+      revalidate: TMDB_SEARCH_REVALIDATE_SECONDS,
+    },
   });
 
   if (!response.ok) {
@@ -49,5 +53,12 @@ export async function GET(request: Request) {
     poster_path: movie.poster_path || null,
   }));
 
-  return NextResponse.json({ results });
+  return NextResponse.json(
+    { results },
+    {
+      headers: {
+        "Cache-Control": `public, s-maxage=${TMDB_SEARCH_REVALIDATE_SECONDS}, stale-while-revalidate=300`,
+      },
+    },
+  );
 }

@@ -2,13 +2,12 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 
-type AuthButtonProps = {
-  isAuthenticated: boolean;
-  userName?: string;
-  userAvatar?: string;
+type AuthUser = {
+  name?: string;
+  avatar?: string;
 };
 
 function GoogleIcon() {
@@ -34,12 +33,70 @@ function GoogleIcon() {
   );
 }
 
-export function AuthButton({ isAuthenticated, userName, userAvatar }: AuthButtonProps) {
-  const supabase = createClient();
+function mapUser(user: { email?: string | null; user_metadata?: Record<string, unknown> } | null): AuthUser | null {
+  if (!user) {
+    return null;
+  }
+
+  const fullName =
+    typeof user.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : typeof user.user_metadata?.name === "string"
+        ? user.user_metadata.name
+        : user.email ?? undefined;
+  const avatar =
+    typeof user.user_metadata?.avatar_url === "string" ? user.user_metadata.avatar_url : undefined;
+
+  return {
+    name: fullName,
+    avatar,
+  };
+}
+
+export function AuthButton() {
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    async function loadInitialUser() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        setUser(mapUser(session.user));
+        setIsBootstrapping(false);
+        return;
+      }
+
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
+      setUser(mapUser(currentUser));
+      setIsBootstrapping(false);
+    }
+
+    void loadInitialUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(mapUser(session?.user ?? null));
+      setIsBootstrapping(false);
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "TOKEN_REFRESHED") {
+        router.refresh();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [router, supabase]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -74,11 +131,18 @@ export function AuthButton({ isAuthenticated, userName, userAvatar }: AuthButton
   const handleSignOut = async () => {
     setIsLoading(true);
     await supabase.auth.signOut();
+    setShowMenu(false);
     router.refresh();
     setIsLoading(false);
   };
 
-  if (isAuthenticated) {
+  if (isBootstrapping) {
+    return (
+      <div className="h-9 w-9 rounded-full bg-[var(--surface-highest)]" aria-hidden="true" />
+    );
+  }
+
+  if (user) {
     return (
       <div className="relative" ref={menuRef}>
         <button
@@ -87,8 +151,8 @@ export function AuthButton({ isAuthenticated, userName, userAvatar }: AuthButton
           className="flex items-center gap-2 rounded-full p-1 transition hover:opacity-80"
         >
           <Image
-            src={userAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(userName || "U")}&background=random`}
-            alt={userName || "Usuario"}
+            src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || "U")}&background=random`}
+            alt={user.name || "Usuario"}
             className="rounded-full object-cover"
             width={36}
             height={36}
@@ -120,7 +184,7 @@ export function AuthButton({ isAuthenticated, userName, userAvatar }: AuthButton
     >
       <GoogleIcon />
       <span>
-        {isLoading ? "Conectando..." : "Continuar con Google"}
+        {isLoading ? "Ingresando..." : "Ingresar"}
       </span>
     </button>
   );
