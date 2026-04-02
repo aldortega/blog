@@ -3,8 +3,11 @@ import PostAverageRating from "@/components/post-average-rating";
 import PostRatingControl from "@/components/post-rating-control";
 import CommentDeleteAction from "@/components/comment-delete-action";
 import MarkdownRenderer from "@/components/markdown-renderer";
+import SubmitButton from "@/components/submit-button";
+import ScrollToTopOnMount from "./scroll-to-top-on-mount";
 import { canManagePost } from "@/lib/posts/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { publicServerClient } from "@/lib/supabase/public-server";
 import { relationFirst, relationText, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
 import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
 import { revalidatePath } from "next/cache";
@@ -14,7 +17,7 @@ import { notFound, redirect } from "next/navigation";
 
 type PostPageProps = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; commentsPage?: string }>;
 };
 
 type CommentRow = {
@@ -25,11 +28,6 @@ type CommentRow = {
   profiles: RelationOneOrMany<{ display_name: string | null; avatar_url: string | null }>;
 };
 
-type RatingRow = {
-  user_id: string;
-  score: number | string;
-};
-
 type RelatedPostRow = {
   id: string;
   title: string;
@@ -38,7 +36,7 @@ type RelatedPostRow = {
   image_path: string | null;
 };
 
-type RelatedRatingRow = {
+type RatingRow = {
   post_id: string;
   score: number | string;
 };
@@ -75,6 +73,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   rating_save: "No se pudo guardar tu puntuacion. Intenta nuevamente.",
   rating_delete: "No se pudo quitar tu puntuacion. Intenta nuevamente.",
 };
+
+const COMMENTS_PAGE_SIZE = 20;
+const RELATED_POSTS_FETCH_LIMIT = 12;
 
 function formatRelativeCommentTime(dateString: string): string {
   const timestamp = new Date(dateString).getTime();
@@ -117,8 +118,13 @@ function formatRelativeCommentTime(dateString: string): string {
 
 export default async function PostPage({ params, searchParams }: PostPageProps) {
   const { id } = await params;
-  const { error: errorCode } = searchParams ? await searchParams : {};
+  const { error: errorCode, commentsPage } = searchParams ? await searchParams : {};
+  const parsedCommentsPage = Number.parseInt(commentsPage ?? "1", 10);
+  const currentCommentsPage = Number.isFinite(parsedCommentsPage) && parsedCommentsPage > 0 ? parsedCommentsPage : 1;
+  const commentsFrom = (currentCommentsPage - 1) * COMMENTS_PAGE_SIZE;
+  const commentsTo = commentsFrom + COMMENTS_PAGE_SIZE - 1;
   const supabase = await createClient();
+  const publicSupabase = publicServerClient;
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -136,58 +142,98 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   }
 
   const postRow = post as PostRow;
-  const { data: viewerProfile } = user
-    ? await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
-    : { data: null };
+
+  const [
+    { data: viewerProfile },
+    { data: comments },
+    { count: commentsCount },
+    { data: postRatings },
+    { data: viewerRatingRow },
+    { data: relatedPosts },
+  ] =
+    await Promise.all([
+    user
+      ? supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("comments")
+      .select("id, author_id, content, created_at, profiles(display_name, avatar_url)")
+      .eq("post_id", id)
+      .order("created_at", { ascending: false })
+      .range(commentsFrom, commentsTo),
+    supabase
+      .from("comments")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", id),
+    publicSupabase
+      .from("ratings")
+      .select("post_id, score")
+      .eq("post_id", id),
+    user
+      ? supabase.from("ratings").select("score").eq("post_id", id).eq("user_id", user.id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("posts")
+      .select("id, title, excerpt, created_at, image_path")
+      .neq("id", id)
+      .order("created_at", { ascending: false })
+      .limit(RELATED_POSTS_FETCH_LIMIT),
+  ]);
+
   const viewerRole = typeof viewerProfile?.role === "string" ? viewerProfile.role : null;
   const canManage = canManagePost({
     viewerId: user?.id ?? null,
     viewerRole,
     postAuthorId: postRow.author_id,
   });
-
-  const [{ data: comments }, { data: ratings }, { data: relatedPosts }, { data: relatedRatings }] = await Promise.all([
-    supabase
-      .from("comments")
-      .select("id, author_id, content, created_at, profiles(display_name, avatar_url)")
-      .eq("post_id", id)
-      .order("created_at", { ascending: true }),
-    supabase.from("ratings").select("user_id, score").eq("post_id", id),
-    supabase
-      .from("posts")
-      .select("id, title, excerpt, created_at, image_path")
-      .neq("id", id)
-      .order("created_at", { ascending: false }),
-    supabase.from("ratings").select("post_id, score").neq("post_id", id),
-  ]);
-
   const commentList = (comments ?? []) as CommentRow[];
-  const ratingRows = (ratings ?? []) as RatingRow[];
-  const totalRatings = ratingRows.length;
-  const avgRating =
-    totalRatings === 0
-      ? null
-      : ratingRows.reduce((sum, item) => sum + Number(item.score), 0) / totalRatings;
-  const viewerRating = user
-    ? ratingRows.find((item) => item.user_id === user.id)?.score ?? null
-    : null;
+  const totalComments = commentsCount ?? 0;
+  const totalCommentPages = Math.max(1, Math.ceil(totalComments / COMMENTS_PAGE_SIZE));
+  const hasPreviousCommentsPage = currentCommentsPage > 1;
+  const hasNextCommentsPage = currentCommentsPage < totalCommentPages;
+  const postRatingRows = (postRatings ?? []) as RatingRow[];
+  const postScores = postRatingRows
+    .map((rating) => Number(rating.score))
+    .filter((score) => Number.isFinite(score));
+  const totalRatings = postScores.length;
+  const avgRating = totalRatings > 0 ? postScores.reduce((sum, score) => sum + score, 0) / totalRatings : null;
+  const viewerRating = viewerRatingRow?.score ?? null;
   const normalizedViewerRating = viewerRating === null ? null : Number(viewerRating);
   const relatedPostRows = (relatedPosts ?? []) as RelatedPostRow[];
-  const relatedRatingRows = (relatedRatings ?? []) as RelatedRatingRow[];
-  const ratingByRelatedPost = new Map<string, { sum: number; count: number }>();
+  const relatedPostIds = relatedPostRows.map((postItem) => postItem.id);
+  const relatedRatingsAggregateQuery =
+    relatedPostIds.length === 0
+      ? Promise.resolve({ data: [] as RatingRow[] })
+      : publicSupabase
+          .from("ratings")
+          .select("post_id, score")
+          .in("post_id", relatedPostIds);
+  const { data: relatedRatingAggregates } = await relatedRatingsAggregateQuery;
+  const relatedRatingRows = (relatedRatingAggregates ?? []) as RatingRow[];
+  const ratingByRelatedPost = new Map<
+    string,
+    {
+      ratingsCount: number;
+      scoreSum: number;
+    }
+  >();
 
   for (const rating of relatedRatingRows) {
-    const current = ratingByRelatedPost.get(rating.post_id) ?? { sum: 0, count: 0 };
-    current.sum += Number(rating.score);
-    current.count += 1;
+    const score = Number(rating.score);
+    if (!Number.isFinite(score)) {
+      continue;
+    }
+    const current = ratingByRelatedPost.get(rating.post_id) ?? { ratingsCount: 0, scoreSum: 0 };
+    current.ratingsCount += 1;
+    current.scoreSum += score;
     ratingByRelatedPost.set(rating.post_id, current);
   }
 
   const featuredCollectionPosts = relatedPostRows
     .map((item) => {
       const rating = ratingByRelatedPost.get(item.id);
-      const ratingsCount = rating?.count ?? 0;
-      const averageRating = rating && rating.count > 0 ? rating.sum / rating.count : null;
+      const ratingsCount = rating?.ratingsCount ?? 0;
+      const averageRating = rating && rating.ratingsCount > 0 ? rating.scoreSum / rating.ratingsCount : null;
       const imageUrl = item.image_path
         ? supabase.storage.from("post-images").getPublicUrl(item.image_path).data.publicUrl
         : null;
@@ -250,6 +296,17 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     movie?.overview ?? fallbackMovie?.overview ?? "Sin descripcion disponible para esta pelicula.";
   const moviePosterPath = movie?.poster_path ?? fallbackMovie?.posterPath ?? null;
   const moviePosterUrl = moviePosterPath ? `https://image.tmdb.org/t/p/w780${moviePosterPath}` : null;
+  const commentsPageHref = (page: number) => {
+    const params = new URLSearchParams();
+    if (errorCode) {
+      params.set("error", errorCode);
+    }
+    if (page > 1) {
+      params.set("commentsPage", String(page));
+    }
+    const query = params.toString();
+    return query.length > 0 ? `/post/${id}?${query}` : `/post/${id}`;
+  };
 
   async function deletePost() {
     "use server";
@@ -313,25 +370,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     const content = String(formData.get("content") ?? "").trim();
     if (!content || content.length > 1000) {
       redirect(`/post/${id}?error=comment_invalid`);
-    }
-
-    const displayName =
-      String(actionUser.user_metadata?.full_name ?? actionUser.user_metadata?.name ?? "").trim() ||
-      actionUser.email?.split("@")[0] ||
-      null;
-    const avatarUrl =
-      typeof actionUser.user_metadata?.avatar_url === "string"
-        ? actionUser.user_metadata.avatar_url
-        : null;
-
-    const { error: profileError } = await supabaseServer.from("profiles").upsert({
-      id: actionUser.id,
-      display_name: displayName,
-      avatar_url: avatarUrl,
-    });
-
-    if (profileError) {
-      redirect(`/post/${id}?error=comment_create`);
     }
 
     const { error: commentError } = await supabaseServer.from("comments").insert({
@@ -414,25 +452,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       redirect(`/post/${id}?error=rating_invalid`);
     }
 
-    const displayName =
-      String(actionUser.user_metadata?.full_name ?? actionUser.user_metadata?.name ?? "").trim() ||
-      actionUser.email?.split("@")[0] ||
-      null;
-    const avatarUrl =
-      typeof actionUser.user_metadata?.avatar_url === "string"
-        ? actionUser.user_metadata.avatar_url
-        : null;
-
-    const { error: profileError } = await supabaseServer.from("profiles").upsert({
-      id: actionUser.id,
-      display_name: displayName,
-      avatar_url: avatarUrl,
-    });
-
-    if (profileError) {
-      redirect(`/post/${id}?error=rating_save`);
-    }
-
     const { error: ratingError } = await supabaseServer
       .from("ratings")
       .upsert(
@@ -454,6 +473,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
 
   return (
     <div className="min-h-screen bg-[#101418] text-[#e0e3e8] font-body selection:bg-[#40fe6d]/30 pb-20">
+      <ScrollToTopOnMount />
       {/* Hero Section */}
       <div className="relative w-full h-[70vh] min-h-[600px] flex flex-col justify-end pb-16 px-6 lg:px-20 overflow-hidden">
         {imageUrl ? (
@@ -534,7 +554,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               />
             </div>
             <h3 className="text-xl font-sans font-bold text-white mb-8 tracking-wide uppercase">
-              Comentarios ({commentList.length})
+              Comentarios ({totalComments})
             </h3>
 
             <div className="space-y-6">
@@ -587,6 +607,31 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                 ))
               )}
             </div>
+            {totalCommentPages > 1 ? (
+              <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-[#3c4b3a]/20 bg-[#0b0f12] px-4 py-3 text-xs uppercase tracking-[0.14em] text-[#bacbb6]">
+                <span>
+                  Pagina {currentCommentsPage} de {totalCommentPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  {hasPreviousCommentsPage ? (
+                    <Link
+                      href={commentsPageHref(currentCommentsPage - 1)}
+                      className="rounded-md border border-[#3c4b3a]/35 px-3 py-1.5 text-[#e0e3e8] transition hover:border-[#40fe6d]/60 hover:text-[#40fe6d]"
+                    >
+                      Anterior
+                    </Link>
+                  ) : null}
+                  {hasNextCommentsPage ? (
+                    <Link
+                      href={commentsPageHref(currentCommentsPage + 1)}
+                      className="rounded-md border border-[#3c4b3a]/35 px-3 py-1.5 text-[#e0e3e8] transition hover:border-[#40fe6d]/60 hover:text-[#40fe6d]"
+                    >
+                      Siguiente
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             {/* Comment Input */}
             {user ? (
@@ -602,12 +647,11 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                   className="w-full bg-transparent text-[#e0e3e8] placeholder:text-[#bacbb6]/50 outline-none resize-none min-h-[100px] text-sm font-body"
                 />
                 <div className="flex justify-end mt-2">
-                  <button
-                    type="submit"
-                    className="bg-[#40fe6d] text-[#00390f] px-6 py-2 rounded-lg text-xs font-bold tracking-widest uppercase hover:bg-[#00e054] transition-colors"
-                  >
-                    Publicar
-                  </button>
+                  <SubmitButton
+                    idleLabel="Publicar"
+                    pendingLabel="Publicando..."
+                    className="bg-[#40fe6d] text-[#00390f] px-6 py-2 rounded-lg text-xs font-bold tracking-widest uppercase hover:bg-[#00e054] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  />
                 </div>
               </form>
             ) : (
@@ -629,7 +673,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                   alt={movieTitle}
                   fill
                   sizes="(max-width: 1024px) 100vw, 380px"
-                  quality={100}
+                  quality={85}
                   className="object-contain opacity-95"
                 />
               ) : (
@@ -677,7 +721,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                             alt={relatedPost.title}
                             fill
                             sizes="200px"
-                            quality={100}
+                            quality={80}
                             className="w-full h-full object-cover"
                           />
                         ) : (

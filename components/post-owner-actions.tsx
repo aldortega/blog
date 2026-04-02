@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
+import SubmitButton from "@/components/submit-button";
 
 type PostOwnerActionsProps = {
   postId: string;
@@ -11,6 +12,7 @@ type PostOwnerActionsProps = {
 
 export default function PostOwnerActions({ postId, onDelete }: PostOwnerActionsProps) {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   return (
     <>
@@ -26,10 +28,14 @@ export default function PostOwnerActions({ postId, onDelete }: PostOwnerActionsP
 
         <button
           type="button"
-          onClick={() => setIsDeleteOpen(true)}
+          onClick={() => {
+            setIsSubmitting(false);
+            setIsDeleteOpen(true);
+          }}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-rose-900/50 bg-rose-950/30 text-rose-300 transition hover:border-rose-500/70 hover:text-rose-200"
           aria-label="Borrar post"
           title="Borrar post"
+          disabled={isSubmitting}
         >
           <Trash2 className="h-[18px] w-[18px]" />
         </button>
@@ -38,7 +44,11 @@ export default function PostOwnerActions({ postId, onDelete }: PostOwnerActionsP
       {isDeleteOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-[#06090d]/80 px-4"
-          onClick={() => setIsDeleteOpen(false)}
+          onClick={() => {
+            if (!isSubmitting) {
+              setIsDeleteOpen(false);
+            }
+          }}
           role="presentation"
         >
           <div
@@ -55,23 +65,25 @@ export default function PostOwnerActions({ postId, onDelete }: PostOwnerActionsP
               Esta accion no se puede deshacer. Se eliminara el post de forma permanente.
             </p>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <form
+              action={onDelete}
+              onSubmit={() => setIsSubmitting(true)}
+              className="mt-6 flex justify-end gap-3"
+            >
               <button
                 type="button"
                 onClick={() => setIsDeleteOpen(false)}
-                className="rounded-lg border border-[#3c4b3a]/40 px-4 py-2 text-sm font-semibold text-[#bacbb6] transition hover:border-[#3c4b3a]/70 hover:text-white"
+                disabled={isSubmitting}
+                className="rounded-lg border border-[#3c4b3a]/40 px-4 py-2 text-sm font-semibold text-[#bacbb6] transition hover:border-[#3c4b3a]/70 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancelar
               </button>
-              <form action={onDelete}>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500"
-                >
-                  Borrar
-                </button>
-              </form>
-            </div>
+              <SubmitButton
+                idleLabel="Borrar"
+                pendingLabel="Borrando..."
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </form>
           </div>
         </div>
       ) : null}

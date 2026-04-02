@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import RatingSummary from "@/components/rating-summary";
 
 type PostAverageRatingProps = {
@@ -40,6 +40,13 @@ export default function PostAverageRating({
   const [average, setAverage] = useState<number | null>(initialAverage);
   const [count, setCount] = useState<number>(initialCount);
   const [viewerRating, setViewerRating] = useState<number | null>(initialViewerRating);
+  const countRef = useRef(count);
+  const viewerRatingRef = useRef(viewerRating);
+
+  useEffect(() => {
+    countRef.current = count;
+    viewerRatingRef.current = viewerRating;
+  }, [count, viewerRating]);
 
   useEffect(() => {
     function onOptimisticVote(event: Event) {
@@ -52,12 +59,12 @@ export default function PostAverageRating({
       setAverage((currentAverage) =>
         nextAverage({
           average: currentAverage,
-          count,
-          previousViewerRating: viewerRating,
+          count: countRef.current,
+          previousViewerRating: viewerRatingRef.current,
           nextViewerRating: score,
         }),
       );
-      if (viewerRating === null) {
+      if (viewerRatingRef.current === null) {
         setCount((currentCount) => currentCount + 1);
       }
       setViewerRating(score);
@@ -67,7 +74,7 @@ export default function PostAverageRating({
     return () => {
       window.removeEventListener("post-rating:optimistic", onOptimisticVote as EventListener);
     };
-  }, [count, viewerRating]);
+  }, []);
 
-  return <RatingSummary average={average} textClassName={textClassName} />;
+  return <RatingSummary average={average} count={count} textClassName={textClassName} />;
 }

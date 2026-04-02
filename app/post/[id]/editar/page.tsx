@@ -2,6 +2,7 @@ import { canManagePost } from "@/lib/posts/permissions";
 import MovieSearch from "@/components/movie-search";
 import PostImageUpload from "@/components/post-image-upload";
 import MarkdownEditor from "@/components/markdown-editor";
+import SubmitButton from "@/components/submit-button";
 import { createClient } from "@/lib/supabase/server";
 import { relationFirst, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
 import { revalidatePath } from "next/cache";
@@ -283,12 +284,11 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
         />
 
         <div className="flex justify-end pt-8 mt-8 border-t border-[#3c4b3a]/20">
-          <button
-            type="submit"
-            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#00e054] text-sm font-bold tracking-widest uppercase text-[#00390f] hover:bg-[#40fe6d] transition-colors shadow-[0_0_20px_rgba(0,224,84,0.3)]"
-          >
-            Guardar post
-          </button>
+          <SubmitButton
+            idleLabel="Guardar post"
+            pendingLabel="Guardando..."
+            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#00e054] text-sm font-bold tracking-widest uppercase text-[#00390f] hover:bg-[#40fe6d] transition-colors shadow-[0_0_20px_rgba(0,224,84,0.3)] disabled:cursor-not-allowed disabled:opacity-60"
+          />
         </div>
       </form>
     </div>
