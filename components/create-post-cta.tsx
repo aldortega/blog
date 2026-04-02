@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -58,8 +59,9 @@ export function CreatePostCta({ label = "Crear post", className = "" }: CreatePo
   return (
     <Link
       href="/nuevo-post"
-      className={`cta-gradient inline-flex w-full max-w-[220px] justify-center rounded-xl px-6 py-2.5 text-sm font-semibold text-[var(--on-primary)] transition hover:brightness-105 sm:w-auto sm:max-w-none ${className}`}
+      className={`cta-gradient inline-flex w-full max-w-[220px] items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-[var(--on-primary)] transition hover:brightness-105 sm:w-auto sm:max-w-none ${className}`}
     >
+      <Plus size={16} aria-hidden="true" />
       {label}
     </Link>
   );

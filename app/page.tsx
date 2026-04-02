@@ -171,8 +171,8 @@ export default async function Home() {
           <section className="mt-10 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {remainingPosts.map((post) => (
               <Link key={post.id} href={`/post/${post.id}`} className="group block">
-                <article className="h-full rounded-2xl bg-[var(--surface-low)] p-3 transition hover:bg-[var(--surface-high)]">
-                  <div className="relative aspect-[16/10] overflow-hidden rounded-xl bg-[var(--surface-high)]">
+                <article className="relative isolate h-full overflow-hidden rounded-2xl bg-[var(--surface-low)]">
+                  <div className="relative aspect-[16/9] w-full">
                     {post.imageUrl ? (
                       <Image
                         src={post.imageUrl}
@@ -182,15 +182,16 @@ export default async function Home() {
                         className="object-cover transition duration-500 group-hover:brightness-110"
                       />
                     ) : (
-                      <div className="h-full w-full bg-[linear-gradient(140deg,#1a2732_0%,#1a1f26_55%,#1f2432_100%)]" />
+                      <div className="h-full w-full bg-[linear-gradient(135deg,#16212a_0%,#11161d_50%,#1f2730_100%)]" />
                     )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#101418] via-[#101418]/35 to-transparent" />
                   </div>
 
-                  <div className="px-1 pb-2 pt-4">
-                    <h4 className="line-clamp-2 text-2xl font-semibold tracking-tight text-[var(--foreground)]">
+                  <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
+                    <h4 className="line-clamp-2 max-w-4xl text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-3xl">
                       {post.title}
                     </h4>
-                    <p className="font-body mt-2 line-clamp-2 text-sm text-[var(--text-muted)]">
+                    <p className="font-body mt-2 line-clamp-2 max-w-2xl text-sm text-[var(--text-muted)] sm:text-base">
                       {post.excerpt ?? "Sin resumen disponible para este articulo."}
                     </p>
                   </div>
