@@ -59,7 +59,7 @@ export function CreatePostCta({ label = "Crear post", className = "" }: CreatePo
   return (
     <Link
       href="/nuevo-post"
-      className={`cta-gradient inline-flex w-full max-w-[220px] items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-[var(--on-primary)] transition hover:brightness-105 sm:w-auto sm:max-w-none ${className}`}
+      className={`cta-gradient inline-flex w-full items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-[var(--on-primary)] transition hover:brightness-105 sm:w-auto ${className}`}
     >
       <Plus size={16} aria-hidden="true" />
       {label}
