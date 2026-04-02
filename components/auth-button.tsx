@@ -11,6 +11,29 @@ type AuthButtonProps = {
   userAvatar?: string;
 };
 
+function GoogleIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.47a5.54 5.54 0 0 1-2.4 3.64v3h3.88c2.26-2.08 3.54-5.16 3.54-8.67Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.07 7.93-2.9l-3.88-3a7.2 7.2 0 0 1-10.73-3.78h-4v3.1A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.32 14.32A7.2 7.2 0 0 1 4.93 12c0-.8.14-1.58.39-2.32v-3.1h-4A12 12 0 0 0 0 12c0 1.94.46 3.78 1.32 5.42l4-3.1Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.8c1.76 0 3.34.61 4.58 1.8l3.43-3.43C17.94 1.24 15.23 0 12 0A12 12 0 0 0 1.32 6.58l4 3.1A7.2 7.2 0 0 1 12 4.8Z"
+      />
+    </svg>
+  );
+}
+
 export function AuthButton({ isAuthenticated, userName, userAvatar }: AuthButtonProps) {
   const supabase = createClient();
   const router = useRouter();
@@ -71,7 +94,7 @@ export function AuthButton({ isAuthenticated, userName, userAvatar }: AuthButton
             height={36}
           />
         </button>
-        
+
         {showMenu && (
           <div className="absolute right-0 mt-2 w-40 rounded-xl border border-[var(--ghost-outline)] bg-[var(--surface-highest)] py-1 shadow-lg">
             <button
@@ -91,11 +114,14 @@ export function AuthButton({ isAuthenticated, userName, userAvatar }: AuthButton
   return (
     <button
       type="button"
-      className="font-body rounded-xl bg-[var(--surface-highest)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] transition hover:bg-[var(--surface-high)] disabled:cursor-not-allowed disabled:opacity-60"
+      className="font-body inline-flex items-center gap-2 rounded-xl bg-[var(--surface-highest)] px-4 py-2 text-sm font-normal text-[var(--foreground)] transition hover:bg-[var(--surface-high)] disabled:cursor-not-allowed disabled:opacity-60"
       onClick={handleGoogleSignIn}
       disabled={isLoading}
     >
-      {isLoading ? "Conectando..." : "Iniciar con Google"}
+      <GoogleIcon />
+      <span>
+        {isLoading ? "Conectando..." : "Continuar con Google"}
+      </span>
     </button>
   );
 }

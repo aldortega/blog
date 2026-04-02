@@ -28,17 +28,32 @@
 }
 
 body {
-  background: var(--background);
+  background: #101418;
   color: var(--foreground);
   font-family: var(--font-manrope), sans-serif;
+  min-height: 100vh;
   background-image:
-    radial-gradient(circle at 18% 14%, rgb(64 254 109 / 0.08), transparent 38%),
-    radial-gradient(circle at 86% 22%, rgb(64 188 244 / 0.08), transparent 34%),
-    linear-gradient(180deg, #0b1015 0%, #101418 58%, #0c1116 100%);
+    radial-gradient(circle at 18% 14%, rgb(64 254 109 / 0.06) 0%, transparent 40%),
+    radial-gradient(circle at 86% 22%, rgb(64 188 244 / 0.06) 0%, transparent 36%),
+    linear-gradient(180deg, #0b1015 0%, #101418 40%, #101418 80%, #0c1116 100%);
+  background-attachment: fixed;
+}
+
+.home-scroll-gradient {
+  background: #101418;
+  background-image:
+    radial-gradient(circle at 18% 14%, rgb(64 254 109 / 0.06) 0%, transparent 40%),
+    radial-gradient(circle at 86% 22%, rgb(64 188 244 / 0.06) 0%, transparent 36%),
+    linear-gradient(180deg, #0b1015 0%, #101418 40%, #101418 80%, #0c1116 100%);
+  background-attachment: scroll;
 }
 
 .font-body {
   font-family: var(--font-inter), sans-serif;
+}
+
+.font-google-ui {
+  font-family: var(--font-roboto), var(--font-inter), Arial, sans-serif;
 }
 
 .brand-glow {

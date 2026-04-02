@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Manrope } from "next/font/google";
+import { Inter, Manrope, Roboto } from "next/font/google";
 import Link from "next/link";
 import { AuthButton } from "@/components/auth-button";
 import { createClient } from "@/lib/supabase/server";
@@ -15,8 +15,14 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
+const roboto = Roboto({
+  variable: "--font-roboto",
+  subsets: ["latin"],
+  weight: ["400", "500"],
+});
+
 export const metadata: Metadata = {
-  title: "Blog de IA y Cine",
+  title: "Artificial Stories",
   description: "Base del blog para analisis de peliculas sobre inteligencia artificial",
 };
 
@@ -41,14 +47,14 @@ export default async function RootLayout({
   return (
     <html
       lang="es"
-      className={`${manrope.variable} ${inter.variable} h-full antialiased`}
+      className={`${manrope.variable} ${inter.variable} ${roboto.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col text-[var(--foreground)]">
+      <body className="min-h-screen flex flex-col text-[var(--foreground)] bg-[var(--background)]">
         <header className="sticky top-0 z-30 border-b border-[var(--ghost-outline)] bg-[rgb(16_20_24_/_0.8)] backdrop-blur-xl">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
             <div>
               <Link href="/" className="brand-glow text-lg font-semibold tracking-tight">
-                Cinematheque
+                Artificial Stories
               </Link>
             </div>
             <AuthButton isAuthenticated={Boolean(user)} userName={userName} userAvatar={userAvatar} />
