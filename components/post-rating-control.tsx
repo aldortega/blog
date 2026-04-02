@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent, RefObject } from "react";
+import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Star, StarHalf } from "lucide-react";
@@ -15,6 +15,7 @@ type PostRatingControlProps = {
 type RatingStarsProps = {
   activeRating: number | null;
   isAuthenticated: boolean;
+  formRef: RefObject<HTMLFormElement | null>;
   inputRef: RefObject<HTMLInputElement | null>;
   setDraftRating: (rating: number) => void;
   setHoverRating: (rating: number | null) => void;
@@ -42,15 +43,48 @@ function scoreFromPointer(event: MouseEvent<HTMLButtonElement>, star: number) {
   return clickedLeftHalf ? star - 0.5 : star;
 }
 
+function scoreFromPosition(clientX: number, rect: DOMRect) {
+  const relative = (clientX - rect.left) / rect.width;
+  const clamped = Math.min(1, Math.max(0, relative));
+  const halfSteps = Math.max(1, Math.min(10, Math.round(clamped * 10)));
+  return halfSteps / 2;
+}
+
 function RatingStars({
   activeRating,
   isAuthenticated,
+  formRef,
   inputRef,
   setDraftRating,
   setHoverRating,
 }: RatingStarsProps) {
   const { pending } = useFormStatus();
   const isDisabled = !isAuthenticated || pending;
+  const starsRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+
+  function updateScore(score: number) {
+    if (!inputRef.current) {
+      return;
+    }
+
+    inputRef.current.value = score.toFixed(1);
+    setDraftRating(score);
+    window.dispatchEvent(
+      new CustomEvent("post-rating:optimistic", {
+        detail: { score },
+      }),
+    );
+  }
+
+  function scoreFromDrag(event: PointerEvent<HTMLDivElement>) {
+    const rect = starsRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return null;
+    }
+
+    return scoreFromPosition(event.clientX, rect);
+  }
 
   function handlePreview(event: MouseEvent<HTMLButtonElement>, star: number) {
     if (isDisabled) {
@@ -66,21 +100,75 @@ function RatingStars({
       return;
     }
 
-    const score = scoreFromPointer(event, star);
-    inputRef.current.value = score.toFixed(1);
-    setDraftRating(score);
-    window.dispatchEvent(
-      new CustomEvent("post-rating:optimistic", {
-        detail: { score },
-      }),
-    );
+    updateScore(scoreFromPointer(event, star));
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (isDisabled || event.pointerType === "mouse") {
+      return;
+    }
+
+    const score = scoreFromDrag(event);
+    if (!score) {
+      return;
+    }
+
+    event.preventDefault();
+    isDraggingRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setHoverRating(score);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (isDisabled || !isDraggingRef.current) {
+      return;
+    }
+
+    const score = scoreFromDrag(event);
+    if (score) {
+      setHoverRating(score);
+    }
+  }
+
+  function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (isDisabled || !isDraggingRef.current) {
+      return;
+    }
+
+    const score = scoreFromDrag(event);
+    if (!score) {
+      return;
+    }
+
+    isDraggingRef.current = false;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setHoverRating(null);
+    updateScore(score);
+    formRef.current?.requestSubmit();
+  }
+
+  function handlePointerCancel(event: PointerEvent<HTMLDivElement>) {
+    if (!isDraggingRef.current) {
+      return;
+    }
+
+    isDraggingRef.current = false;
+    setHoverRating(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   return (
     <>
       <div
-        className={`flex items-center gap-1 ${isAuthenticated ? "" : "opacity-60"} ${pending ? "opacity-70" : ""}`}
+        ref={starsRef}
+        className={`flex items-center gap-1 touch-none ${isAuthenticated ? "" : "opacity-60"} ${pending ? "opacity-70" : ""}`}
         onMouseLeave={() => setHoverRating(null)}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
       >
         {Array.from({ length: 5 }, (_, index) => {
           const star = index + 1;
@@ -92,7 +180,7 @@ function RatingStars({
               onMouseMove={(event) => handlePreview(event, star)}
               onClick={(event) => handleSelect(event, star)}
               disabled={isDisabled}
-              className="relative inline-flex h-8 w-8 items-center justify-center disabled:cursor-not-allowed"
+              className="relative inline-flex h-10 w-10 items-center justify-center disabled:cursor-not-allowed sm:h-8 sm:w-8"
               aria-label={`Puntuar ${star} estrellas`}
               aria-busy={pending}
             >
@@ -133,6 +221,7 @@ export default function PostRatingControl({
 }: PostRatingControlProps) {
   const [draftRating, setDraftRating] = useState<number | null>(initialRating);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeRating = hoverRating ?? draftRating;
 
@@ -141,11 +230,12 @@ export default function PostRatingControl({
       <p className="text-center text-[11px] font-bold uppercase tracking-[0.16em] text-[#bacbb6]">Puntuar post</p>
 
       <div className="mt-3">
-        <form action={onRate} className="flex flex-col items-center">
+        <form ref={formRef} action={onRate} className="flex flex-col items-center">
           <input ref={inputRef} type="hidden" name="score" defaultValue={initialRating?.toFixed(1) ?? "0.5"} />
           <RatingStars
             activeRating={activeRating}
             isAuthenticated={isAuthenticated}
+            formRef={formRef}
             inputRef={inputRef}
             setDraftRating={setDraftRating}
             setHoverRating={setHoverRating}
