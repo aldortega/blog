@@ -5,6 +5,7 @@ type TmdbMovieResult = {
   title: string;
   release_date?: string;
   overview?: string;
+  poster_path?: string;
 };
 
 export async function GET(request: Request) {
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
     title: movie.title,
     release_date: movie.release_date || null,
     overview: movie.overview || null,
+    poster_path: movie.poster_path || null,
   }));
 
   return NextResponse.json({ results });
