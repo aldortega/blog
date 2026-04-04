@@ -139,7 +139,7 @@ export default async function Home() {
                   <p className="inline-flex rounded-md bg-[rgb(64_254_109_/_0.18)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">
                     Post destacado
                   </p>
-                  <h3 className="mt-4 max-w-4xl text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-5xl">
+                  <h3 className="mt-4 max-w-4xl text-xl font-semibold tracking-tight text-[var(--foreground)] sm:text-5xl">
                     {featuredPost.title}
                   </h3>
                 </div>
@@ -183,9 +183,9 @@ export default async function Home() {
                   </div>
 
                   <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
-                  <h4 className="line-clamp-2 max-w-4xl text-xl font-semibold tracking-tight text-[var(--foreground)] sm:text-2xl">
-                    {post.title}
-                  </h4>
+                    <h4 className="line-clamp-2 max-w-4xl text-xl font-semibold tracking-tight text-[var(--foreground)] sm:text-2xl">
+                      {post.title}
+                    </h4>
                   </div>
                 </article>
               </Link>
