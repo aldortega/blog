@@ -78,11 +78,26 @@ export default function MarkdownRenderer({
               {children}
             </blockquote>
           ),
-          ul: ({ children }) => <ul className="my-4 list-disc space-y-2 pl-6 marker:text-[#40fe6d]">{children}</ul>,
-          ol: ({ children }) => (
-            <ol className="my-4 list-decimal space-y-2 pl-6 marker:text-[#40fe6d]">{children}</ol>
-          ),
-          li: ({ children }) => <li>{children}</li>,
+          ul: ({ node, children, ...props }) => {
+            void node;
+            return (
+              <ul {...props} className="my-4 list-disc space-y-2 pl-8 marker:text-[#40fe6d]">
+                {children}
+              </ul>
+            );
+          },
+          ol: ({ node, children, ...props }) => {
+            void node;
+            return (
+              <ol {...props} className="my-4 list-decimal space-y-2 pl-6 marker:text-[#40fe6d]">
+                {children}
+              </ol>
+            );
+          },
+          li: ({ node, children, ...props }) => {
+            void node;
+            return <li {...props}>{children}</li>;
+          },
           a: ({ href, children }) => {
             const isExternal = typeof href === "string" && /^https?:\/\//.test(href);
             return (
