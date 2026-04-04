@@ -31,7 +31,6 @@ type CommentRow = {
 type RelatedPostRow = {
   id: string;
   title: string;
-  excerpt: string | null;
   created_at: string;
   image_path: string | null;
 };
@@ -45,7 +44,6 @@ type PostRow = {
   id: string;
   author_id: string;
   title: string;
-  excerpt: string | null;
   content: string;
   created_at: string;
   image_path: string | null;
@@ -132,7 +130,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const { data: post } = await supabase
     .from("posts")
     .select(
-      "id, author_id, title, excerpt, content, created_at, image_path, movies(tmdb_id, title, release_date, overview, director, poster_path), profiles(display_name, avatar_url)",
+      "id, author_id, title, content, created_at, image_path, movies(tmdb_id, title, release_date, overview, director, poster_path), profiles(display_name, avatar_url)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -174,7 +172,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       : Promise.resolve({ data: null }),
     supabase
       .from("posts")
-      .select("id, title, excerpt, created_at, image_path")
+      .select("id, title, created_at, image_path")
       .neq("id", id)
       .order("created_at", { ascending: false })
       .limit(RELATED_POSTS_FETCH_LIMIT),
@@ -737,9 +735,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                         <h4 className="text-white font-bold font-sans text-sm group-hover:text-[#40fe6d] transition-colors line-clamp-2">
                           {relatedPost.title}
                         </h4>
-                        <p className="text-[#bacbb6] text-xs italic line-clamp-2">
-                          {relatedPost.excerpt ?? "Sin resumen disponible para este articulo."}
-                        </p>
                       </div>
                     </Link>
                   );

@@ -13,7 +13,7 @@ const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: "No tienes permisos para editar este post.",
-  invalid: "El titulo, el resumen y el contenido son obligatorios.",
+  invalid: "El titulo y el contenido son obligatorios.",
   image_invalid: "La imagen debe ser JPG/PNG/WEBP y pesar menos de 5MB.",
   movie: "No se pudo asociar la pelicula seleccionada.",
   image_upload: "No se pudo subir la imagen del post al storage.",
@@ -29,7 +29,6 @@ type EditablePost = {
   id: string;
   author_id: string;
   title: string;
-  excerpt: string | null;
   content: string;
   image_path: string | null;
   movies: RelationOneOrMany<{
@@ -57,9 +56,7 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
   const [{ data: post }, { data: profile }] = await Promise.all([
     supabase
       .from("posts")
-      .select(
-        "id, author_id, title, excerpt, content, image_path, movies(tmdb_id, title, release_date, overview, poster_path)",
-      )
+      .select("id, author_id, title, content, image_path, movies(tmdb_id, title, release_date, overview, poster_path)")
       .eq("id", id)
       .maybeSingle(),
     supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
@@ -117,7 +114,6 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
     }
 
     const title = String(formData.get("title") ?? "").trim();
-    const resumen = String(formData.get("resumen") ?? "").trim();
     const content = String(formData.get("content") ?? "").trim();
     const tmdbIdInput = String(formData.get("tmdb_id") ?? "").trim();
     const movieTitle = String(formData.get("movie_title") ?? "").trim();
@@ -125,7 +121,7 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
     const movieOverviewInput = String(formData.get("movie_overview") ?? "").trim();
     const imageFile = formData.get("image");
 
-    if (!title || !resumen || !content) {
+    if (!title || !content) {
       redirect(`/post/${id}/editar?error=invalid`);
     }
 
@@ -190,13 +186,11 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
 
     const updatePayload: {
       title: string;
-      excerpt: string;
       content: string;
       image_path?: string;
       movie_id?: string;
     } = {
       title,
-      excerpt: resumen,
       content,
     };
 
@@ -257,17 +251,6 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
             defaultValue={editablePost.title}
             placeholder="Titulo del post..."
             className="w-full bg-transparent text-4xl lg:text-5xl font-bold text-white placeholder:text-white/20 outline-none pb-4 border-b border-[#3c4b3a]/30 focus:border-[#43fe6d] transition-colors"
-          />
-        </div>
-
-        <div>
-          <textarea
-            name="resumen"
-            required
-            rows={3}
-            defaultValue={editablePost.excerpt ?? ""}
-            placeholder="Resumen del post..."
-            className="w-full rounded-xl border border-[#3c4b3a]/30 bg-[#181c20] p-4 text-base text-[#e0e3e8] placeholder:text-[#bacbb6]/50 outline-none transition-colors focus:border-[#43fe6d] font-body"
           />
         </div>
 

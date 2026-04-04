@@ -10,7 +10,7 @@ import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ERROR_MESSAGES: Record<string, string> = {
-  invalid: "Faltan campos obligatorios (titulo, resumen, imagen o contenido).",
+  invalid: "Faltan campos obligatorios (titulo, imagen o contenido).",
   image_invalid: "La imagen debe ser JPG/PNG/WEBP y pesar menos de 5MB.",
   profile: "No se pudo crear/actualizar tu perfil de autor.",
   movie_required: "Debes seleccionar una pelicula para publicar.",
@@ -48,7 +48,6 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     }
 
     const title = String(formData.get("title") ?? "").trim();
-    const resumen = String(formData.get("resumen") ?? "").trim();
     const content = String(formData.get("content") ?? "").trim();
     const tmdbIdInput = String(formData.get("tmdb_id") ?? "").trim();
     const movieTitle = String(formData.get("movie_title") ?? "").trim();
@@ -56,7 +55,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     const movieOverviewInput = String(formData.get("movie_overview") ?? "").trim();
     const imageFile = formData.get("image");
 
-    if (!title || !resumen || !content || !(imageFile instanceof File) || imageFile.size === 0) {
+    if (!title || !content || !(imageFile instanceof File) || imageFile.size === 0) {
       redirect("/nuevo-post?error=invalid");
     }
 
@@ -135,7 +134,6 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
         author_id: actionUser.id,
         movie_id: movie.id,
         title,
-        excerpt: resumen,
         content,
         image_path: imagePath,
       })
@@ -177,16 +175,6 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
             required
             placeholder="Titulo del post..."
             className="w-full bg-transparent text-4xl lg:text-5xl font-bold text-white placeholder:text-white/20 outline-none pb-4 border-b border-[#3c4b3a]/30 focus:border-[#43fe6d] transition-colors"
-          />
-        </div>
-
-        <div>
-          <textarea
-            name="resumen"
-            required
-            rows={3}
-            placeholder="Resumen del post..."
-            className="w-full rounded-xl border border-[#3c4b3a]/30 bg-[#181c20] p-4 text-base text-[#e0e3e8] placeholder:text-[#bacbb6]/50 outline-none transition-colors focus:border-[#43fe6d] font-body"
           />
         </div>
 

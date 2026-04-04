@@ -10,7 +10,6 @@ const HOME_POSTS_LIMIT = 30;
 type HomePost = {
   id: string;
   title: string;
-  excerpt: string | null;
   created_at: string;
   image_path: string | null;
 };
@@ -25,7 +24,7 @@ export default async function Home() {
 
   const { data: posts } = await supabase
     .from("posts")
-    .select("id, title, excerpt, created_at, image_path")
+    .select("id, title, created_at, image_path")
     .order("created_at", { ascending: false })
     .limit(HOME_POSTS_LIMIT);
 
@@ -35,9 +34,9 @@ export default async function Home() {
     postIds.length === 0
       ? Promise.resolve({ data: [] as HomeRatingAggregateRow[] })
       : supabase
-          .from("ratings")
-          .select("post_id, score")
-          .in("post_id", postIds);
+        .from("ratings")
+        .select("post_id, score")
+        .in("post_id", postIds);
   const { data: ratingAggregates } = await ratingAggregateQuery;
   const ratingRows = (ratingAggregates ?? []) as HomeRatingAggregateRow[];
   const ratingByPost = new Map<
@@ -140,13 +139,9 @@ export default async function Home() {
                   <p className="inline-flex rounded-md bg-[rgb(64_254_109_/_0.18)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--primary)]">
                     Post destacado
                   </p>
-                  <h3 className="mt-4 max-w-4xl text-3xl font-semibold tracking-tight text-[var(--foreground)] sm:text-5xl">
+                  <h3 className="mt-4 max-w-4xl text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-5xl">
                     {featuredPost.title}
                   </h3>
-                  <p className="font-body mt-3 max-w-2xl text-sm text-[var(--text-muted)] sm:text-base">
-                    {featuredPost.excerpt ??
-                      "Lectura destacada de esta semana con foco en imagen, tono y narrativa."}
-                  </p>
                 </div>
               </article>
             </Link>
@@ -188,12 +183,9 @@ export default async function Home() {
                   </div>
 
                   <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6">
-                    <h4 className="line-clamp-2 max-w-4xl text-2xl font-semibold tracking-tight text-[var(--foreground)] sm:text-3xl">
-                      {post.title}
-                    </h4>
-                    <p className="font-body mt-2 line-clamp-2 max-w-2xl text-sm text-[var(--text-muted)] sm:text-base">
-                      {post.excerpt ?? "Sin resumen disponible para este articulo."}
-                    </p>
+                  <h4 className="line-clamp-2 max-w-4xl text-xl font-semibold tracking-tight text-[var(--foreground)] sm:text-2xl">
+                    {post.title}
+                  </h4>
                   </div>
                 </article>
               </Link>
