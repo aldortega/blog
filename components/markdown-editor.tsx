@@ -155,7 +155,7 @@ export default function MarkdownEditor({
   }
 
   return (
-    <div className="bg-[#181c20] rounded-xl overflow-hidden min-h-[420px] flex flex-col">
+    <div className="bg-[#181c20] rounded-xl overflow-hidden min-h-[600px] flex flex-col">
       <input type="hidden" name={name} value={markdown} />
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3c4b3a]/20 px-6 py-4">
