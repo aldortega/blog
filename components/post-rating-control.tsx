@@ -101,6 +101,7 @@ function RatingStars({
     }
 
     updateScore(scoreFromPointer(event, star));
+    formRef.current?.requestSubmit();
   }
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -176,7 +177,7 @@ function RatingStars({
           return (
             <button
               key={star}
-              type="submit"
+              type="button"
               onMouseMove={(event) => handlePreview(event, star)}
               onClick={(event) => handleSelect(event, star)}
               disabled={isDisabled}
