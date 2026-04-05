@@ -22,7 +22,8 @@ function normalizeSummary(summary: string): string {
 
 function buildPrompt({ title, content }: { title: string; content: string }): string {
   return [
-    "Escribe un resumen en espanol, en un solo parrafo corto.",
+    "Escribe un resumen en espanol, en un solo parrafo y habla en general sobre el post.",
+    "Tiene que ser corto y conciso, no te explayes mucho, no muchas palabras",
     "Se permite Markdown (como **negrita** o *cursiva*), pero no uses listas, titulos ni bloques.",
     "No inventes datos ni agregues informacion externa.",
     "Tono claro y neutral.",

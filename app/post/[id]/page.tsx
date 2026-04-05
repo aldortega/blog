@@ -6,6 +6,8 @@ import MarkdownRenderer from "@/components/markdown-renderer";
 import SubmitButton from "@/components/submit-button";
 import ScrollToTopOnMount from "./scroll-to-top-on-mount";
 import SummaryStatusSync from "./summary-status-sync";
+import RegenerateSummaryButton from "./regenerate-summary-button";
+import SummaryGeneratingTitle from "./summary-generating-title";
 import { canManagePost } from "@/lib/posts/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { publicServerClient } from "@/lib/supabase/public-server";
@@ -18,7 +20,7 @@ import { after } from "next/server";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 type PostPageProps = {
   params: Promise<{ id: string }>;
@@ -621,9 +623,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
             <section className="rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-5">
               <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#40fe6d]">
                 <Sparkles className="h-4 w-4" />
-
-                Resumen
-
+                <SummaryGeneratingTitle />
               </p>
               <SummaryStatusSync postId={id} initialStatus={postRow.ai_summary_status} />
             </section>
@@ -638,14 +638,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                 </p>
                 {canManage ? (
                   <form action={regenerateSummary}>
-                    <button
-                      type="submit"
-                      aria-label="Regenerar resumen"
-                      title="Regenerar resumen"
-                      className="text-[#bacbb6] transition hover:text-[#40fe6d]"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </button>
+                    <RegenerateSummaryButton className="text-[#bacbb6] transition hover:text-[#40fe6d] disabled:opacity-70" />
                   </form>
                 ) : null}
               </div>
@@ -661,14 +654,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                 </p>
                 {canManage ? (
                   <form action={regenerateSummary}>
-                    <button
-                      type="submit"
-                      aria-label="Regenerar resumen"
-                      title="Regenerar resumen"
-                      className="text-rose-200 transition hover:text-rose-100"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </button>
+                    <RegenerateSummaryButton className="text-rose-200 transition hover:text-rose-100 disabled:opacity-70" />
                   </form>
                 ) : null}
               </div>
