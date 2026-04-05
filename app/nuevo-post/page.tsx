@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { normalizeAvatarUrl } from "@/lib/avatar";
 import MovieSearch from "@/components/movie-search";
 import PostImageUpload from "@/components/post-image-upload";
 import MarkdownEditor from "@/components/markdown-editor";
@@ -6,6 +7,8 @@ import SubmitButton from "@/components/submit-button";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
+import { after } from "next/server";
+import { generatePostSummary } from "@/lib/ai/generate-post-summary";
 
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -77,10 +80,11 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       String(actionUser.user_metadata?.full_name ?? actionUser.user_metadata?.name ?? "").trim() ||
       actionUser.email?.split("@")[0] ||
       null;
-    const avatarUrl =
+    const rawAvatarUrl =
       typeof actionUser.user_metadata?.avatar_url === "string"
         ? actionUser.user_metadata.avatar_url
         : null;
+    const avatarUrl = rawAvatarUrl ? normalizeAvatarUrl(rawAvatarUrl) : null;
 
     const { error: profileError } = await supabaseServer.from("profiles").upsert({
       id: actionUser.id,
@@ -144,6 +148,15 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       await supabaseServer.storage.from("post-images").remove([imagePath]);
       redirect("/nuevo-post?error=post");
     }
+
+    after(async () => {
+      await generatePostSummary({
+        supabase: supabaseServer,
+        postId: post.id,
+        title,
+        content,
+      });
+    });
 
     revalidatePath("/");
     redirect(`/post/${post.id}`);

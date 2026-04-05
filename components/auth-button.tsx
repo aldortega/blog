@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { resolveAvatarSrc } from "@/lib/avatar";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
@@ -143,6 +144,8 @@ export function AuthButton() {
   }
 
   if (user) {
+    const avatarSrc = resolveAvatarSrc(user.avatar, user.name || "U");
+
     return (
       <div className="relative" ref={menuRef}>
         <button
@@ -151,11 +154,12 @@ export function AuthButton() {
           className="flex items-center gap-2 rounded-full p-1 transition hover:opacity-80"
         >
           <Image
-            src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || "U")}&background=random`}
+            src={avatarSrc}
             alt={user.name || "Usuario"}
             className="rounded-full object-cover"
             width={36}
             height={36}
+            quality={100}
           />
         </button>
 

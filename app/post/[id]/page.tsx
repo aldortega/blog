@@ -5,15 +5,20 @@ import CommentDeleteAction from "@/components/comment-delete-action";
 import MarkdownRenderer from "@/components/markdown-renderer";
 import SubmitButton from "@/components/submit-button";
 import ScrollToTopOnMount from "./scroll-to-top-on-mount";
+import SummaryStatusSync from "./summary-status-sync";
 import { canManagePost } from "@/lib/posts/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { publicServerClient } from "@/lib/supabase/public-server";
 import { relationFirst, relationText, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
 import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
+import { generatePostSummary } from "@/lib/ai/generate-post-summary";
+import { resolveAvatarSrc } from "@/lib/avatar";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { RefreshCw, Sparkles } from "lucide-react";
 
 type PostPageProps = {
   params: Promise<{ id: string }>;
@@ -47,6 +52,10 @@ type PostRow = {
   content: string;
   created_at: string;
   image_path: string | null;
+  ai_summary: string | null;
+  ai_summary_status: "pending" | "generating" | "ready" | "failed";
+  ai_summary_attempts: number;
+  ai_summary_generated_at: string | null;
   movies: RelationOneOrMany<{
     tmdb_id: number;
     title: string;
@@ -70,6 +79,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   rating_invalid: "La puntuacion debe estar entre 0.5 y 5.0.",
   rating_save: "No se pudo guardar tu puntuacion. Intenta nuevamente.",
   rating_delete: "No se pudo quitar tu puntuacion. Intenta nuevamente.",
+  summary_regenerate: "No se pudo regenerar el resumen. Intenta nuevamente.",
 };
 
 const COMMENTS_PAGE_SIZE = 20;
@@ -130,7 +140,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const { data: post } = await supabase
     .from("posts")
     .select(
-      "id, author_id, title, content, created_at, image_path, movies(tmdb_id, title, release_date, overview, director, poster_path), profiles(display_name, avatar_url)",
+      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, movies(tmdb_id, title, release_date, overview, director, poster_path), profiles(display_name, avatar_url)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -140,6 +150,10 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   }
 
   const postRow = post as PostRow;
+  const hasSummary = typeof postRow.ai_summary === "string" && postRow.ai_summary.trim().length > 0;
+  const showPendingSummary = postRow.ai_summary_status === "pending" || postRow.ai_summary_status === "generating";
+  const showFailedSummary =
+    postRow.ai_summary_status === "failed" || (postRow.ai_summary_status === "ready" && !hasSummary);
 
   const [
     { data: viewerProfile },
@@ -150,33 +164,33 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     { data: relatedPosts },
   ] =
     await Promise.all([
-    user
-      ? supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
-      : Promise.resolve({ data: null }),
-    supabase
-      .from("comments")
-      .select("id, author_id, content, created_at, profiles(display_name, avatar_url)")
-      .eq("post_id", id)
-      .order("created_at", { ascending: false })
-      .range(commentsFrom, commentsTo),
-    supabase
-      .from("comments")
-      .select("id", { count: "exact", head: true })
-      .eq("post_id", id),
-    publicSupabase
-      .from("ratings")
-      .select("post_id, score")
-      .eq("post_id", id),
-    user
-      ? supabase.from("ratings").select("score").eq("post_id", id).eq("user_id", user.id).maybeSingle()
-      : Promise.resolve({ data: null }),
-    supabase
-      .from("posts")
-      .select("id, title, created_at, image_path")
-      .neq("id", id)
-      .order("created_at", { ascending: false })
-      .limit(RELATED_POSTS_FETCH_LIMIT),
-  ]);
+      user
+        ? supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      supabase
+        .from("comments")
+        .select("id, author_id, content, created_at, profiles(display_name, avatar_url)")
+        .eq("post_id", id)
+        .order("created_at", { ascending: false })
+        .range(commentsFrom, commentsTo),
+      supabase
+        .from("comments")
+        .select("id", { count: "exact", head: true })
+        .eq("post_id", id),
+      publicSupabase
+        .from("ratings")
+        .select("post_id, score")
+        .eq("post_id", id),
+      user
+        ? supabase.from("ratings").select("score").eq("post_id", id).eq("user_id", user.id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      supabase
+        .from("posts")
+        .select("id, title, created_at, image_path")
+        .neq("id", id)
+        .order("created_at", { ascending: false })
+        .limit(RELATED_POSTS_FETCH_LIMIT),
+    ]);
 
   const viewerRole = typeof viewerProfile?.role === "string" ? viewerProfile.role : null;
   const canManage = canManagePost({
@@ -203,9 +217,9 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     relatedPostIds.length === 0
       ? Promise.resolve({ data: [] as RatingRow[] })
       : publicSupabase
-          .from("ratings")
-          .select("post_id, score")
-          .in("post_id", relatedPostIds);
+        .from("ratings")
+        .select("post_id, score")
+        .in("post_id", relatedPostIds);
   const { data: relatedRatingAggregates } = await relatedRatingsAggregateQuery;
   const relatedRatingRows = (relatedRatingAggregates ?? []) as RatingRow[];
   const ratingByRelatedPost = new Map<
@@ -274,9 +288,11 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   }).toUpperCase();
 
   const authorName = relationText(postRow.profiles, (profile) => profile.display_name, "ALEXANDER STERLING");
-  const authorAvatar =
-    relationText(postRow.profiles, (profile) => profile.avatar_url, "") ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(authorName)}&background=101418&color=e0e3e8`;
+  const authorAvatar = resolveAvatarSrc(
+    relationText(postRow.profiles, (profile) => profile.avatar_url, ""),
+    authorName,
+    { background: "101418", color: "e0e3e8" },
+  );
   const movie = relationFirst(postRow.movies);
 
   const needsTmdbFallback = Boolean(
@@ -469,6 +485,66 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     revalidatePath(`/post/${id}`);
   }
 
+  async function regenerateSummary() {
+    "use server";
+
+    const supabaseServer = await createClient();
+    const {
+      data: { user: actionUser },
+    } = await supabaseServer.auth.getUser();
+
+    if (!actionUser) {
+      redirect(`/post/${id}?error=unauthorized`);
+    }
+
+    const [{ data: targetPost }, { data: actionProfile }] = await Promise.all([
+      supabaseServer.from("posts").select("author_id, title, content").eq("id", id).maybeSingle(),
+      supabaseServer.from("profiles").select("role").eq("id", actionUser.id).maybeSingle(),
+    ]);
+
+    if (!targetPost) {
+      redirect("/");
+    }
+
+    const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
+    const isAllowed = canManagePost({
+      viewerId: actionUser.id,
+      viewerRole: actionRole,
+      postAuthorId: targetPost.author_id,
+    });
+
+    if (!isAllowed) {
+      redirect(`/post/${id}?error=unauthorized`);
+    }
+
+    const { error: resetError } = await supabaseServer
+      .from("posts")
+      .update({
+        ai_summary: null,
+        ai_summary_status: "pending",
+        ai_summary_attempts: 0,
+        ai_summary_generated_at: null,
+      })
+      .eq("id", id);
+
+    if (resetError) {
+      redirect(`/post/${id}?error=summary_regenerate`);
+    }
+
+    after(async () => {
+      await generatePostSummary({
+        supabase: supabaseServer,
+        postId: id,
+        title: targetPost.title,
+        content: targetPost.content,
+      });
+      revalidatePath(`/post/${id}`);
+    });
+
+    revalidatePath(`/post/${id}`);
+    redirect(`/post/${id}`);
+  }
+
   return (
     <div className="min-h-screen bg-[#101418] text-[#e0e3e8] font-body selection:bg-[#40fe6d]/30 pb-20">
       <ScrollToTopOnMount />
@@ -515,6 +591,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                     fill
                     sizes="40px"
                     className="object-cover"
+                    quality={100}
                   />
                 </div>
                 <div className="flex flex-col">
@@ -540,6 +617,67 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       <div className="max-w-[1400px] mx-auto px-6 lg:px-20 py-12 grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-16 lg:gap-24">
         {/* Left Column - Content */}
         <div className="min-w-0">
+          {showPendingSummary ? (
+            <section className="rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-5">
+              <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#40fe6d]">
+                <Sparkles className="h-4 w-4" />
+
+                Resumen
+
+              </p>
+              <SummaryStatusSync postId={id} initialStatus={postRow.ai_summary_status} />
+            </section>
+          ) : null}
+          {postRow.ai_summary_status === "ready" && hasSummary ? (
+            <section className="rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-5">
+              <div className="flex items-center justify-between gap-4">
+                <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#40fe6d]">
+                  <Sparkles className="h-4 w-4" />
+                  Resumen
+
+                </p>
+                {canManage ? (
+                  <form action={regenerateSummary}>
+                    <button
+                      type="submit"
+                      aria-label="Regenerar resumen"
+                      title="Regenerar resumen"
+                      className="text-[#bacbb6] transition hover:text-[#40fe6d]"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+              <MarkdownRenderer content={postRow.ai_summary ?? ""} compact className="mt-3" />
+            </section>
+          ) : null}
+          {showFailedSummary ? (
+            <section className="rounded-2xl border border-rose-900/40 bg-rose-950/20 px-6 py-5">
+              <div className="flex items-center justify-between gap-4">
+                <p className="inline-flex items-center gap-2 text-sm font-semibold text-rose-300">
+                  <Sparkles className="h-4 w-4" />
+                  Resumen
+                </p>
+                {canManage ? (
+                  <form action={regenerateSummary}>
+                    <button
+                      type="submit"
+                      aria-label="Regenerar resumen"
+                      title="Regenerar resumen"
+                      className="text-rose-200 transition hover:text-rose-100"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+              <p className="mt-2 text-sm text-rose-200/90">
+                No se pudo generar el resumen para este post.
+              </p>
+            </section>
+          ) : null}
+
           <MarkdownRenderer content={postRow.content} className="mt-10 max-w-3xl" />
 
           {/* Comments Section */}
@@ -561,27 +699,35 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                   Todavia no hay comentarios. Se la primera persona en comentar.
                 </div>
               ) : (
-                commentList.map((comment) => (
-                  <div key={comment.id} className="group bg-[#181c20] rounded-xl p-6 flex gap-4">
-                    <div className="w-10 h-10 rounded-full bg-[#262a2f] flex-shrink-0 overflow-hidden border border-[#3c4b3a]/30 relative">
-                      <Image
-                        src={
-                          relationText(comment.profiles, (profile) => profile.avatar_url, "") ||
-                          `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                            relationText(comment.profiles, (profile) => profile.display_name, "Usuario"),
-                          )}&background=262a2f&color=e0e3e8`
-                        }
-                        alt={relationText(comment.profiles, (profile) => profile.display_name, "Usuario")}
-                        fill
-                        sizes="40px"
-                        className="object-cover"
-                      />
-                    </div>
+                commentList.map((comment) => {
+                  const commentAuthorName = relationText(
+                    comment.profiles,
+                    (profile) => profile.display_name,
+                    "Usuario",
+                  );
+                  const commentAvatar = resolveAvatarSrc(
+                    relationText(comment.profiles, (profile) => profile.avatar_url, ""),
+                    commentAuthorName,
+                    { background: "262a2f", color: "e0e3e8" },
+                  );
+
+                  return (
+                    <div key={comment.id} className="group bg-[#181c20] rounded-xl p-6 flex gap-4">
+                      <div className="w-10 h-10 rounded-full bg-[#262a2f] flex-shrink-0 overflow-hidden border border-[#3c4b3a]/30 relative">
+                        <Image
+                          src={commentAvatar}
+                          alt={commentAuthorName}
+                          fill
+                          sizes="40px"
+                          className="object-cover"
+                          quality={100}
+                        />
+                      </div>
                     <div className="flex-1">
                       <div className="flex justify-between items-center mb-2">
                         <div className="flex items-center">
                           <span className="font-bold text-white text-sm">
-                            {relationText(comment.profiles, (profile) => profile.display_name, "Usuario")}
+                            {commentAuthorName}
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -601,8 +747,9 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                       </div>
                       <p className="text-[#bacbb6] text-sm leading-relaxed">{comment.content}</p>
                     </div>
-                  </div>
-                ))
+                    </div>
+                  );
+                })
               )}
             </div>
             {totalCommentPages > 1 ? (

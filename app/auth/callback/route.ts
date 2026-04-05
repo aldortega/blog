@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { normalizeAvatarUrl } from "@/lib/avatar";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -27,10 +28,11 @@ export async function GET(request: Request) {
       String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? "").trim() ||
       user.email?.split("@")[0] ||
       null;
-    const avatarUrl =
+    const rawAvatarUrl =
       typeof user.user_metadata?.avatar_url === "string"
         ? user.user_metadata.avatar_url
         : null;
+    const avatarUrl = rawAvatarUrl ? normalizeAvatarUrl(rawAvatarUrl) : null;
 
     await supabase.from("profiles").upsert({
       id: user.id,
