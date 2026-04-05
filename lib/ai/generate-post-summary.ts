@@ -5,8 +5,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 const MAX_GENERATION_ATTEMPTS = 2;
-const MIN_SUMMARY_WORDS = 14;
-const MIN_SUMMARY_CHARS = 90;
 
 type SummaryStatus = "pending" | "generating" | "ready" | "failed";
 
@@ -24,9 +22,8 @@ function normalizeSummary(summary: string): string {
 
 function buildPrompt({ title, content }: { title: string; content: string }): string {
   return [
-    "Eres editor de un blog de cine.",
-    "Escribe un resumen en espanol, en un solo parrafo de 2 a 4 oraciones.",
-    "Se permite Markdown inline (como **negrita** o *cursiva*), pero no uses listas, titulos ni bloques.",
+    "Escribe un resumen en espanol, en un solo parrafo corto.",
+    "Se permite Markdown (como **negrita** o *cursiva*), pero no uses listas, titulos ni bloques.",
     "No inventes datos ni agregues informacion externa.",
     "Tono claro y neutral.",
     "",
@@ -36,24 +33,24 @@ function buildPrompt({ title, content }: { title: string; content: string }): st
   ].join("\n");
 }
 
-function isCompleteSummary(summary: string): boolean {
-  const normalized = normalizeSummary(summary);
-  if (!normalized) {
-    return false;
+function extractSummaryText(response: { text?: string | null; candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }): string {
+  const plainText = normalizeSummary(response.text ?? "");
+  if (plainText) {
+    return plainText;
   }
 
-  const words = normalized.split(" ").filter(Boolean);
-  if (words.length < MIN_SUMMARY_WORDS || normalized.length < MIN_SUMMARY_CHARS) {
-    return false;
-  }
+  const fallback = (response.candidates ?? [])
+    .flatMap((candidate) => candidate.content?.parts ?? [])
+    .map((part) => part.text ?? "")
+    .join(" ");
 
-  return /[.!?]"?$/.test(normalized);
+  return normalizeSummary(fallback);
 }
 
 async function requestSummaryFromGemini({ title, content }: { title: string; content: string }): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
   if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY");
+    throw new Error("Missing GEMINI_API_KEY/GOOGLE_API_KEY");
   }
 
   const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL;
@@ -68,16 +65,9 @@ async function requestSummaryFromGemini({ title, content }: { title: string; con
     },
   });
 
-  const summary = normalizeSummary(response.text ?? "");
-  const finishReason = response.candidates?.[0]?.finishReason;
-  const incompleteFinishReason = finishReason === "MAX_TOKENS" || finishReason === "FINISH_REASON_UNSPECIFIED";
-
-  if (!isCompleteSummary(summary)) {
-    throw new Error("Gemini returned an incomplete summary");
-  }
-
-  if (incompleteFinishReason && !/[.!?]"?$/.test(summary)) {
-    throw new Error(`Gemini returned incomplete output (${finishReason})`);
+  const summary = extractSummaryText(response);
+  if (!summary) {
+    throw new Error("Gemini returned empty summary");
   }
 
   return summary;
@@ -162,7 +152,12 @@ export async function generatePostSummary({
         summary,
       });
       return;
-    } catch {
+    } catch (error) {
+      console.error("Error generating post summary", {
+        postId,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (attempt === MAX_GENERATION_ATTEMPTS) {
         await updateSummaryState({
           supabase,
