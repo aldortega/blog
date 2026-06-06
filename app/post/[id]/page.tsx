@@ -19,7 +19,7 @@ import { after } from "next/server";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Eye, MessageSquare } from "lucide-react";
 
 type PostPageProps = {
   params: Promise<{ id: string }>;
@@ -152,6 +152,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     { data: viewerProfile },
     { data: comments },
     { count: commentsCount },
+    { count: viewsCount },
     { data: postRatings },
     { data: viewerRatingRow },
     { data: relatedPosts },
@@ -168,6 +169,10 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
         .range(commentsFrom, commentsTo),
       supabase
         .from("comments")
+        .select("id", { count: "exact", head: true })
+        .eq("post_id", id),
+      publicSupabase
+        .from("content_views")
         .select("id", { count: "exact", head: true })
         .eq("post_id", id),
       publicSupabase
@@ -189,6 +194,16 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const canManage = canManageContent(viewerRole);
   const commentList = (comments ?? []) as CommentRow[];
   const totalComments = commentsCount ?? 0;
+  const totalViews = viewsCount ?? 0;
+
+  // Registramos la apertura del post fuera del render (logueado o anónimo). La RLS
+  // permite el insert con user_id null o igual al usuario actual.
+  after(async () => {
+    await supabase.from("content_views").insert({
+      post_id: id,
+      user_id: user?.id ?? null,
+    });
+  });
   const totalCommentPages = Math.max(1, Math.ceil(totalComments / COMMENTS_PAGE_SIZE));
   const hasPreviousCommentsPage = currentCommentsPage > 1;
   const hasNextCommentsPage = currentCommentsPage < totalCommentPages;
@@ -570,6 +585,16 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                 initialViewerRating={normalizedViewerRating}
                 textClassName="text-sm font-semibold text-white"
               />
+              <div className="flex items-center gap-4 text-sm font-semibold text-[#bacbb6]">
+                <span className="inline-flex items-center gap-1.5" title="Vistas">
+                  <Eye className="h-4 w-4" />
+                  {totalViews.toLocaleString("es-AR")}
+                </span>
+                <span className="inline-flex items-center gap-1.5" title="Comentarios">
+                  <MessageSquare className="h-4 w-4" />
+                  {totalComments.toLocaleString("es-AR")}
+                </span>
+              </div>
               {canManage ? <PostOwnerActions postId={id} onDelete={deletePost} /> : null}
 
             </div>

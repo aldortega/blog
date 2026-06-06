@@ -4,7 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AuthButton } from "@/components/auth-button";
 
-export function MobileAutoHideHeader() {
+export type HeaderCategory = {
+  name: string;
+  slug: string;
+};
+
+export function MobileAutoHideHeader({
+  categories = [],
+}: {
+  categories?: HeaderCategory[];
+}) {
   const [isHidden, setIsHidden] = useState(false);
   const lastScrollY = useRef(0);
 
@@ -42,14 +51,40 @@ export function MobileAutoHideHeader() {
         isHidden ? "-translate-y-full" : "translate-y-0"
       } md:translate-y-0`}
     >
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-        <div>
-          <Link href="/" className="brand-glow text-lg font-semibold tracking-tight">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-4">
+        <div className="flex min-w-0 items-center gap-6">
+          <Link href="/" className="brand-glow shrink-0 text-lg font-semibold tracking-tight">
             Sistemas Inteligentes
           </Link>
+          {categories.length > 0 ? (
+            <nav className="hidden min-w-0 items-center gap-4 overflow-x-auto md:flex">
+              {categories.map((category) => (
+                <Link
+                  key={category.slug}
+                  href={`/seccion/${category.slug}`}
+                  className="whitespace-nowrap text-sm font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--primary)]"
+                >
+                  {category.name}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
         </div>
         <AuthButton />
       </div>
+      {categories.length > 0 ? (
+        <nav className="flex items-center gap-4 overflow-x-auto border-t border-[var(--ghost-outline)] px-6 py-2.5 md:hidden">
+          {categories.map((category) => (
+            <Link
+              key={category.slug}
+              href={`/seccion/${category.slug}`}
+              className="whitespace-nowrap text-xs font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--primary)]"
+            >
+              {category.name}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
     </header>
   );
 }
