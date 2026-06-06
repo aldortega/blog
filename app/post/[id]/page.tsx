@@ -8,11 +8,10 @@ import ScrollToTopOnMount from "./scroll-to-top-on-mount";
 import SummaryStatusSync from "./summary-status-sync";
 import RegenerateSummaryButton from "./regenerate-summary-button";
 import SummaryGeneratingTitle from "./summary-generating-title";
-import { canManagePost } from "@/lib/posts/permissions";
+import { canManageContent } from "@/lib/posts/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { publicServerClient } from "@/lib/supabase/public-server";
-import { relationFirst, relationText, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
-import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
+import { relationText, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
 import { generatePostSummary } from "@/lib/ai/generate-post-summary";
 import { resolveAvatarSrc } from "@/lib/avatar";
 import { revalidatePath } from "next/cache";
@@ -58,14 +57,6 @@ type PostRow = {
   ai_summary_status: "pending" | "generating" | "ready" | "failed";
   ai_summary_attempts: number;
   ai_summary_generated_at: string | null;
-  movies: RelationOneOrMany<{
-    tmdb_id: number;
-    title: string;
-    release_date: string | null;
-    overview: string | null;
-    director: string | null;
-    poster_path: string | null;
-  }>;
   profiles: RelationOneOrMany<{ display_name: string | null; avatar_url: string | null }>;
 };
 
@@ -142,7 +133,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const { data: post } = await supabase
     .from("posts")
     .select(
-      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, movies(tmdb_id, title, release_date, overview, director, poster_path), profiles(display_name, avatar_url)",
+      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, profiles(display_name, avatar_url)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -195,11 +186,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     ]);
 
   const viewerRole = typeof viewerProfile?.role === "string" ? viewerProfile.role : null;
-  const canManage = canManagePost({
-    viewerId: user?.id ?? null,
-    viewerRole,
-    postAuthorId: postRow.author_id,
-  });
+  const canManage = canManageContent(viewerRole);
   const commentList = (comments ?? []) as CommentRow[];
   const totalComments = commentsCount ?? 0;
   const totalCommentPages = Math.max(1, Math.ceil(totalComments / COMMENTS_PAGE_SIZE));
@@ -295,23 +282,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     authorName,
     { background: "101418", color: "e0e3e8" },
   );
-  const movie = relationFirst(postRow.movies);
-
-  const needsTmdbFallback = Boolean(
-    movie &&
-    movie.tmdb_id &&
-    (!movie.poster_path || !movie.director || !movie.overview || !movie.release_date),
-  );
-  const fallbackMovie = needsTmdbFallback ? await fetchTmdbMovieDetails(movie!.tmdb_id) : null;
-
-  const movieTitle = movie?.title ?? fallbackMovie?.title ?? "Pelicula sin titulo";
-  const movieYear =
-    movie?.release_date?.substring(0, 4) ?? fallbackMovie?.releaseDate?.substring(0, 4) ?? "----";
-  const movieDirector = movie?.director ?? fallbackMovie?.director ?? "Director desconocido";
-  const movieOverview =
-    movie?.overview ?? fallbackMovie?.overview ?? "Sin descripcion disponible para esta pelicula.";
-  const moviePosterPath = movie?.poster_path ?? fallbackMovie?.posterPath ?? null;
-  const moviePosterUrl = moviePosterPath ? `https://image.tmdb.org/t/p/w780${moviePosterPath}` : null;
   const commentsPageHref = (page: number) => {
     const params = new URLSearchParams();
     if (errorCode) {
@@ -346,11 +316,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     }
 
     const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
-    const isAllowed = canManagePost({
-      viewerId: actionUser.id,
-      viewerRole: actionRole,
-      postAuthorId: targetPost.author_id,
-    });
+    const isAllowed = canManageContent(actionRole);
 
     if (!isAllowed) {
       redirect(`/post/${id}?error=unauthorized`);
@@ -509,11 +475,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     }
 
     const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
-    const isAllowed = canManagePost({
-      viewerId: actionUser.id,
-      viewerRole: actionRole,
-      postAuthorId: targetPost.author_id,
-    });
+    const isAllowed = canManageContent(actionRole);
 
     if (!isAllowed) {
       redirect(`/post/${id}?error=unauthorized`);
@@ -561,7 +523,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               className="object-cover object-top opacity-80"
               priority
             />
-            {/* Cinematic Gradient Mask */}
+            {/* Gradient Mask */}
             <div className="absolute inset-0 bg-gradient-to-t from-[#101418] via-[#101418]/60 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-r from-[#101418]/90 via-transparent to-transparent" />
           </div>
@@ -795,41 +757,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
 
         {/* Right Column - Sidebar */}
         <aside className="space-y-12">
-          {/* Film Context Card */}
-          <div className="bg-[#181c20] rounded-2xl overflow-hidden flex flex-col border border-[#181c20]">
-            <div className="relative w-full aspect-[2/3] bg-[#0b0f12]">
-              {moviePosterUrl ? (
-                <Image
-                  src={moviePosterUrl}
-                  alt={movieTitle}
-                  fill
-                  sizes="(max-width: 1024px) 100vw, 380px"
-                  quality={85}
-                  className="object-contain opacity-95"
-                />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-tr from-[#101418] to-[#181c20]" />
-              )}
-              {/* Overlay gradient for poster mask */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#181c20] via-[#181c20]/30 to-transparent" />
-            </div>
-            <div className="p-8 pt-0 -mt-4 relative z-10">
-              <div className="grid grid-cols-2 gap-4 mb-8 text-sm">
-                <div>
-                  <span className="block text-[#bacbb6] text-[10px] tracking-widest uppercase mb-1">Año</span>
-                  <span className="text-white font-bold">{movieYear}</span>
-                </div>
-                <div>
-                  <span className="block text-[#bacbb6] text-[10px] tracking-widest uppercase mb-1">Director</span>
-                  <span className="text-white font-bold">{movieDirector}</span>
-                </div>
-              </div>
-              <p className="text-[#bacbb6] text-sm leading-relaxed">{movieOverview}</p>
-
-
-            </div>
-          </div>
-
           {/* Coleccion destacada */}
           {featuredCollectionPosts.length > 0 ? (
             <div>

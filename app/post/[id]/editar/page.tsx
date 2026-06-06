@@ -1,22 +1,21 @@
-import { canManagePost } from "@/lib/posts/permissions";
-import MovieSearch from "@/components/movie-search";
+import { canManageContent } from "@/lib/posts/permissions";
+import { resolveCategoryId } from "@/lib/categories";
 import PostImageUpload from "@/components/post-image-upload";
 import MarkdownEditor from "@/components/markdown-editor";
+import CategorySelect from "@/components/category-select";
 import SubmitButton from "@/components/submit-button";
 import { createClient } from "@/lib/supabase/server";
-import { relationFirst, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
-import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
 
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: "No tienes permisos para editar este post.",
-  invalid: "El titulo y el contenido son obligatorios.",
+  invalid: "El titulo, el contenido y la categoria son obligatorios.",
   image_invalid: "La imagen debe ser JPG/PNG/WEBP y pesar menos de 5MB.",
-  movie: "No se pudo asociar la pelicula seleccionada.",
   image_upload: "No se pudo subir la imagen del post al storage.",
+  category: "No se pudo crear o asignar la categoria.",
   update: "No se pudo actualizar el post. Intenta nuevamente.",
 };
 
@@ -31,13 +30,7 @@ type EditablePost = {
   title: string;
   content: string;
   image_path: string | null;
-  movies: RelationOneOrMany<{
-    tmdb_id: number;
-    title: string;
-    release_date: string | null;
-    overview: string | null;
-    poster_path: string | null;
-  }>;
+  category_id: string | null;
 };
 
 export default async function EditPostPage({ params, searchParams }: EditPostPageProps) {
@@ -53,13 +46,14 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
     redirect(`/post/${id}`);
   }
 
-  const [{ data: post }, { data: profile }] = await Promise.all([
+  const [{ data: post }, { data: profile }, { data: categories }] = await Promise.all([
     supabase
       .from("posts")
-      .select("id, author_id, title, content, image_path, movies(tmdb_id, title, release_date, overview, poster_path)")
+      .select("id, author_id, title, content, image_path, category_id")
       .eq("id", id)
       .maybeSingle(),
     supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+    supabase.from("categories").select("id, name").order("name"),
   ]);
 
   if (!post) {
@@ -67,13 +61,8 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
   }
 
   const viewerRole = typeof profile?.role === "string" ? profile.role : null;
-  const canEdit = canManagePost({
-    viewerId: user.id,
-    viewerRole,
-    postAuthorId: post.author_id,
-  });
 
-  if (!canEdit) {
+  if (!canManageContent(viewerRole)) {
     redirect(`/post/${id}?error=unauthorized`);
   }
 
@@ -103,62 +92,19 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
     }
 
     const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
-    const isAllowed = canManagePost({
-      viewerId: actionUser.id,
-      viewerRole: actionRole,
-      postAuthorId: targetPost.author_id,
-    });
 
-    if (!isAllowed) {
+    if (!canManageContent(actionRole)) {
       redirect(`/post/${id}?error=unauthorized`);
     }
 
     const title = String(formData.get("title") ?? "").trim();
     const content = String(formData.get("content") ?? "").trim();
-    const tmdbIdInput = String(formData.get("tmdb_id") ?? "").trim();
-    const movieTitle = String(formData.get("movie_title") ?? "").trim();
-    const movieReleaseDateInput = String(formData.get("movie_release_date") ?? "").trim();
-    const movieOverviewInput = String(formData.get("movie_overview") ?? "").trim();
     const imageFile = formData.get("image");
+    const categoryId = String(formData.get("category_id") ?? "").trim();
+    const newCategory = String(formData.get("new_category") ?? "").trim();
 
-    if (!title || !content) {
+    if (!title || !content || (!categoryId && !newCategory)) {
       redirect(`/post/${id}/editar?error=invalid`);
-    }
-
-    let nextMovieId: string | null = null;
-    const hasMovieUpdate = tmdbIdInput.length > 0 || movieTitle.length > 0;
-    if (hasMovieUpdate) {
-      const tmdbId = Number.parseInt(tmdbIdInput, 10);
-      if (!Number.isFinite(tmdbId) || tmdbId <= 0 || !movieTitle) {
-        redirect(`/post/${id}/editar?error=movie`);
-      }
-
-      const tmdbMovie = await fetchTmdbMovieDetails(tmdbId);
-      if (!tmdbMovie) {
-        redirect(`/post/${id}/editar?error=movie`);
-      }
-
-      const { data: movie, error: movieError } = await supabaseServer
-        .from("movies")
-        .upsert(
-          {
-            tmdb_id: tmdbId,
-            title: tmdbMovie.title,
-            release_date: tmdbMovie.releaseDate ?? (movieReleaseDateInput || null),
-            overview: tmdbMovie.overview ?? (movieOverviewInput || null),
-            director: tmdbMovie.director,
-            poster_path: tmdbMovie.posterPath,
-          },
-          { onConflict: "tmdb_id" },
-        )
-        .select("id")
-        .single();
-
-      if (movieError || !movie) {
-        redirect(`/post/${id}/editar?error=movie`);
-      }
-
-      nextMovieId = movie.id;
     }
 
     let nextImagePath: string | null = null;
@@ -184,19 +130,29 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
       }
     }
 
+    const { categoryId: resolvedCategoryId, error: categoryError } = await resolveCategoryId(
+      supabaseServer,
+      { categoryId, newCategoryName: newCategory },
+    );
+
+    if (categoryError) {
+      if (nextImagePath) {
+        await supabaseServer.storage.from("post-images").remove([nextImagePath]);
+      }
+      redirect(`/post/${id}/editar?error=category`);
+    }
+
     const updatePayload: {
       title: string;
       content: string;
+      category_id: string | null;
       image_path?: string;
-      movie_id?: string;
     } = {
       title,
       content,
+      category_id: resolvedCategoryId,
     };
 
-    if (nextMovieId) {
-      updatePayload.movie_id = nextMovieId;
-    }
     if (nextImagePath) {
       updatePayload.image_path = nextImagePath;
     }
@@ -224,7 +180,6 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
   }
 
   const editablePost = post as EditablePost;
-  const selectedMovie = relationFirst(editablePost.movies);
   const currentImageUrl = editablePost.image_path
     ? supabase.storage.from("post-images").getPublicUrl(editablePost.image_path).data.publicUrl
     : null;
@@ -233,7 +188,7 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
     <div className="mx-auto w-full max-w-5xl px-6 py-12 lg:py-20">
       <div className="mb-12">
         <h1 className="text-5xl lg:text-6xl font-bold tracking-tight text-white mb-3">Editar post</h1>
-        <p className="text-[#bacbb6] font-body text-lg">Crea tu analisis cinematografico para la comunidad.</p>
+        <p className="text-[#bacbb6] font-body text-lg">Actualiza el articulo del repositorio.</p>
 
         {errorCode ? (
           <p className="mt-6 rounded border border-rose-900/50 bg-rose-950/30 px-4 py-3 text-sm text-rose-400 font-body">
@@ -254,16 +209,19 @@ export default async function EditPostPage({ params, searchParams }: EditPostPag
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <MovieSearch initialMovie={selectedMovie} />
-          <PostImageUpload emptyLabel="Subir portada" initialImageUrl={currentImageUrl} />
-        </div>
+        <PostImageUpload emptyLabel="Subir portada" initialImageUrl={currentImageUrl} />
+
+        <CategorySelect
+          required
+          categories={categories ?? []}
+          defaultCategoryId={editablePost.category_id}
+        />
 
         <MarkdownEditor
           required
           name="content"
           initialValue={editablePost.content}
-          placeholder="Escribe tu analisis..."
+          placeholder="Escribe el contenido del articulo..."
         />
 
         <div className="flex justify-end pt-8 mt-8 border-t border-[#3c4b3a]/20">
