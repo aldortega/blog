@@ -21,8 +21,8 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
-  title: "Artificial Stories",
-  description: "Base del blog para analisis de peliculas sobre inteligencia artificial",
+  title: "Repositorio de Sistemas Inteligentes",
+  description: "Biblioteca curada de articulos sobre inteligencia artificial y sistemas inteligentes",
 };
 
 export default function RootLayout({

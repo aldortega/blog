@@ -102,11 +102,11 @@ export default async function Home() {
         <section className="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
           <div>
             <h2 className="mt-4 max-w-2xl text-5xl font-semibold tracking-[-0.02em] text-[var(--foreground)] sm:text-6xl">
-              Blog
+              Repositorio de Sistemas Inteligentes
             </h2>
             <p className="font-body mt-5 max-w-xl text-lg leading-relaxed text-[var(--text-muted)]">
-              Ensayos de cine, analisis visual y relatos de comunidad en torno al
-              cruce entre peliculas e inteligencia artificial.
+              Biblioteca curada de articulos sobre inteligencia artificial: teoria,
+              aplicaciones y debate de comunidad.
             </p>
           </div>
 
@@ -155,8 +155,8 @@ export default async function Home() {
               Todavia no hay posteos
             </h3>
             <p className="font-body mt-3 max-w-2xl text-[var(--text-muted)]">
-              Publica el primer analisis para empezar a construir el archivo
-              editorial del blog.
+              Publica el primer articulo para empezar a construir el
+              repositorio de sistemas inteligentes.
             </p>
             <CreatePostCta label="Escribir primer post" className="mt-7 px-5 sm:px-6" />
           </section>

@@ -12,7 +12,6 @@ type MarkdownRendererProps = {
 };
 
 const STATIC_IMAGE_HOSTS = new Set([
-  "image.tmdb.org",
   "lh3.googleusercontent.com",
   "ui-avatars.com",
 ]);

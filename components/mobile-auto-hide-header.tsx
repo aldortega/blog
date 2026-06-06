@@ -45,7 +45,7 @@ export function MobileAutoHideHeader() {
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
         <div>
           <Link href="/" className="brand-glow text-lg font-semibold tracking-tight">
-            Artificial Stories
+            Sistemas Inteligentes
           </Link>
         </div>
         <AuthButton />
