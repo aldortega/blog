@@ -7,12 +7,15 @@ import SubmitButton from "@/components/submit-button";
 import ScrollToTopOnMount from "./scroll-to-top-on-mount";
 import SummaryStatusSync from "./summary-status-sync";
 import RegenerateSummaryButton from "./regenerate-summary-button";
+import RegenerateEmbeddingsButton from "./regenerate-embeddings-button";
+import EmbeddingsStatusSync from "./embeddings-status-sync";
 import SummaryGeneratingTitle from "./summary-generating-title";
 import { canManageContent } from "@/lib/posts/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { publicServerClient } from "@/lib/supabase/public-server";
 import { relationText, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
 import { generatePostSummary } from "@/lib/ai/generate-post-summary";
+import { generatePostEmbeddings } from "@/lib/ai/embeddings";
 import { resolveAvatarSrc } from "@/lib/avatar";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
@@ -41,6 +44,11 @@ type RelatedPostRow = {
   image_path: string | null;
 };
 
+type RelatedMatchRow = {
+  post_id: string;
+  similarity: number;
+};
+
 type RatingRow = {
   post_id: string;
   score: number | string;
@@ -57,6 +65,8 @@ type PostRow = {
   ai_summary_status: "pending" | "generating" | "ready" | "failed";
   ai_summary_attempts: number;
   ai_summary_generated_at: string | null;
+  embeddings_status: "pending" | "generating" | "ready" | "failed";
+  chunks_count: number;
   profiles: RelationOneOrMany<{ display_name: string | null; avatar_url: string | null }>;
 };
 
@@ -73,10 +83,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   rating_save: "No se pudo guardar tu puntuacion. Intenta nuevamente.",
   rating_delete: "No se pudo quitar tu puntuacion. Intenta nuevamente.",
   summary_regenerate: "No se pudo regenerar el resumen. Intenta nuevamente.",
+  embeddings_regenerate: "No se pudo regenerar los embeddings. Intenta nuevamente.",
 };
 
 const COMMENTS_PAGE_SIZE = 20;
-const RELATED_POSTS_FETCH_LIMIT = 12;
+// Relacionados semánticos: mismo umbral coseno que /api/search.
+const RELATED_SIMILARITY_THRESHOLD = 0.5;
+const RELATED_MATCH_COUNT = 4;
 
 function formatRelativeCommentTime(dateString: string): string {
   const timestamp = new Date(dateString).getTime();
@@ -133,7 +146,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const { data: post } = await supabase
     .from("posts")
     .select(
-      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, profiles(display_name, avatar_url)",
+      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, embeddings_status, chunks_count, profiles(display_name, avatar_url)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -147,6 +160,9 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const showPendingSummary = postRow.ai_summary_status === "pending" || postRow.ai_summary_status === "generating";
   const showFailedSummary =
     postRow.ai_summary_status === "failed" || (postRow.ai_summary_status === "ready" && !hasSummary);
+  const embeddingsStatus = postRow.embeddings_status;
+  const chunksCount = postRow.chunks_count ?? 0;
+  const embeddingsIndexing = embeddingsStatus === "pending" || embeddingsStatus === "generating";
 
   const [
     { data: viewerProfile },
@@ -155,7 +171,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     { count: viewsCount },
     { data: postRatings },
     { data: viewerRatingRow },
-    { data: relatedPosts },
   ] =
     await Promise.all([
       user
@@ -182,12 +197,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       user
         ? supabase.from("ratings").select("score").eq("post_id", id).eq("user_id", user.id).maybeSingle()
         : Promise.resolve({ data: null }),
-      supabase
-        .from("posts")
-        .select("id, title, created_at, image_path")
-        .neq("id", id)
-        .order("created_at", { ascending: false })
-        .limit(RELATED_POSTS_FETCH_LIMIT),
     ]);
 
   const viewerRole = typeof viewerProfile?.role === "string" ? viewerProfile.role : null;
@@ -215,71 +224,39 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const avgRating = totalRatings > 0 ? postScores.reduce((sum, score) => sum + score, 0) / totalRatings : null;
   const viewerRating = viewerRatingRow?.score ?? null;
   const normalizedViewerRating = viewerRating === null ? null : Number(viewerRating);
-  const relatedPostRows = (relatedPosts ?? []) as RelatedPostRow[];
-  const relatedPostIds = relatedPostRows.map((postItem) => postItem.id);
-  const relatedRatingsAggregateQuery =
-    relatedPostIds.length === 0
-      ? Promise.resolve({ data: [] as RatingRow[] })
-      : publicSupabase
-        .from("ratings")
-        .select("post_id, score")
-        .in("post_id", relatedPostIds);
-  const { data: relatedRatingAggregates } = await relatedRatingsAggregateQuery;
-  const relatedRatingRows = (relatedRatingAggregates ?? []) as RatingRow[];
-  const ratingByRelatedPost = new Map<
-    string,
-    {
-      ratingsCount: number;
-      scoreSum: number;
-    }
-  >();
+  // Artículos relacionados por similitud semántica (max-sim entre chunks vía
+  // pgvector). Solo semánticos: si el post no tiene embeddings o nada supera el
+  // umbral, el bloque queda vacío y no se muestra.
+  const { data: relatedMatches } = await publicSupabase.rpc("match_related_posts", {
+    p_post_id: id,
+    match_threshold: RELATED_SIMILARITY_THRESHOLD,
+    match_count: RELATED_MATCH_COUNT,
+  });
+  const relatedMatchRows = (relatedMatches ?? []) as RelatedMatchRow[];
+  const relatedMatchIds = relatedMatchRows.map((match) => match.post_id);
 
-  for (const rating of relatedRatingRows) {
-    const score = Number(rating.score);
-    if (!Number.isFinite(score)) {
-      continue;
-    }
-    const current = ratingByRelatedPost.get(rating.post_id) ?? { ratingsCount: 0, scoreSum: 0 };
-    current.ratingsCount += 1;
-    current.scoreSum += score;
-    ratingByRelatedPost.set(rating.post_id, current);
+  const { data: relatedPosts } =
+    relatedMatchIds.length === 0
+      ? { data: [] as RelatedPostRow[] }
+      : await publicSupabase.from("posts").select("id, title, created_at, image_path").in("id", relatedMatchIds);
+  const relatedPostById = new Map<string, RelatedPostRow>();
+  for (const postItem of (relatedPosts ?? []) as RelatedPostRow[]) {
+    relatedPostById.set(postItem.id, postItem);
   }
 
-  const featuredCollectionPosts = relatedPostRows
-    .map((item) => {
-      const rating = ratingByRelatedPost.get(item.id);
-      const ratingsCount = rating?.ratingsCount ?? 0;
-      const averageRating = rating && rating.ratingsCount > 0 ? rating.scoreSum / rating.ratingsCount : null;
+  // Preserva el orden por similitud que devolvió la RPC.
+  const featuredCollectionPosts = relatedMatchRows
+    .map((match) => {
+      const item = relatedPostById.get(match.post_id);
+      if (!item) {
+        return null;
+      }
       const imageUrl = item.image_path
         ? supabase.storage.from("post-images").getPublicUrl(item.image_path).data.publicUrl
         : null;
-
-      return {
-        ...item,
-        ratingsCount,
-        averageRating,
-        imageUrl,
-      };
+      return { ...item, imageUrl };
     })
-    .sort((a, b) => {
-      const aHasRatings = a.averageRating !== null;
-      const bHasRatings = b.averageRating !== null;
-
-      if (aHasRatings !== bHasRatings) {
-        return aHasRatings ? -1 : 1;
-      }
-
-      if (a.averageRating !== b.averageRating) {
-        return (b.averageRating ?? -1) - (a.averageRating ?? -1);
-      }
-
-      if (a.ratingsCount !== b.ratingsCount) {
-        return b.ratingsCount - a.ratingsCount;
-      }
-
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    })
-    .slice(0, 3);
+    .filter((item): item is RelatedPostRow & { imageUrl: string | null } => item !== null);
 
   const imageUrl = postRow.image_path
     ? supabase.storage.from("post-images").getPublicUrl(postRow.image_path).data.publicUrl
@@ -524,6 +501,61 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     redirect(`/post/${id}`);
   }
 
+  async function regenerateEmbeddings() {
+    "use server";
+
+    const supabaseServer = await createClient();
+    const {
+      data: { user: actionUser },
+    } = await supabaseServer.auth.getUser();
+
+    if (!actionUser) {
+      redirect(`/post/${id}?error=unauthorized`);
+    }
+
+    const [{ data: targetPost }, { data: actionProfile }] = await Promise.all([
+      supabaseServer.from("posts").select("title, content").eq("id", id).maybeSingle(),
+      supabaseServer.from("profiles").select("role").eq("id", actionUser.id).maybeSingle(),
+    ]);
+
+    if (!targetPost) {
+      redirect("/");
+    }
+
+    const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
+
+    if (!canManageContent(actionRole)) {
+      redirect(`/post/${id}?error=unauthorized`);
+    }
+
+    const { error: resetError } = await supabaseServer
+      .from("posts")
+      .update({
+        embeddings_status: "pending",
+        embeddings_attempts: 0,
+        embeddings_generated_at: null,
+      })
+      .eq("id", id);
+
+    if (resetError) {
+      redirect(`/post/${id}?error=embeddings_regenerate`);
+    }
+
+    after(async () => {
+      await generatePostEmbeddings({
+        supabase: supabaseServer,
+        postId: id,
+        title: targetPost.title,
+        content: targetPost.content,
+        force: true,
+      });
+      revalidatePath(`/post/${id}`);
+    });
+
+    revalidatePath(`/post/${id}`);
+    redirect(`/post/${id}`);
+  }
+
   return (
     <div className="min-h-screen bg-[#101418] text-[#e0e3e8] font-body selection:bg-[#40fe6d]/30 pb-20">
       <ScrollToTopOnMount />
@@ -648,6 +680,42 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               <p className="mt-2 text-sm text-rose-200/90">
                 No se pudo generar el resumen para este post.
               </p>
+            </section>
+          ) : null}
+
+          {canManage ? (
+            <section className="mt-4 rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#40fe6d]">
+                    <Sparkles className="h-4 w-4" />
+                    Búsqueda semántica (RAG)
+                  </p>
+                  <p className="mt-1 text-xs text-[#bacbb6]">
+                    {embeddingsIndexing
+                      ? "Indexando el contenido..."
+                      : embeddingsStatus === "ready" && chunksCount > 0
+                        ? `Indexado · ${chunksCount} ${chunksCount === 1 ? "fragmento" : "fragmentos"}`
+                        : embeddingsStatus === "ready"
+                          ? "Sin fragmentos para indexar."
+                          : "Sin indexar. Regenera para incluirlo en la búsqueda y los relacionados."}
+                  </p>
+                </div>
+                {!embeddingsIndexing ? (
+                  <form action={regenerateEmbeddings}>
+                    <RegenerateEmbeddingsButton
+                      className={
+                        embeddingsStatus === "failed"
+                          ? "text-rose-200 transition hover:text-rose-100 disabled:opacity-70"
+                          : "text-[#bacbb6] transition hover:text-[#40fe6d] disabled:opacity-70"
+                      }
+                    />
+                  </form>
+                ) : null}
+              </div>
+              {embeddingsIndexing ? (
+                <EmbeddingsStatusSync postId={id} initialStatus={embeddingsStatus} />
+              ) : null}
             </section>
           ) : null}
 
@@ -782,10 +850,10 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
 
         {/* Right Column - Sidebar */}
         <aside className="space-y-12">
-          {/* Coleccion destacada */}
+          {/* Articulos relacionados (similitud semantica) */}
           {featuredCollectionPosts.length > 0 ? (
             <div>
-              <span className="text-[#bacbb6] text-[10px] font-bold tracking-widest uppercase mb-6 block">Coleccion destacada</span>
+              <span className="text-[#bacbb6] text-[10px] font-bold tracking-widest uppercase mb-6 block">Articulos relacionados</span>
               <div className="space-y-4">
                 {featuredCollectionPosts.map((relatedPost) => {
                   const relatedYear = new Date(relatedPost.created_at).getFullYear();

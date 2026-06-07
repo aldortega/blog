@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { generatePostSummary } from "@/lib/ai/generate-post-summary";
+import { generatePostEmbeddings } from "@/lib/ai/embeddings";
 
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -160,6 +161,12 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
 
     after(async () => {
       await generatePostSummary({
+        supabase: supabaseServer,
+        postId: post.id,
+        title,
+        content,
+      });
+      await generatePostEmbeddings({
         supabase: supabaseServer,
         postId: post.id,
         title,
