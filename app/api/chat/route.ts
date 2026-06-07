@@ -157,7 +157,7 @@ export async function POST(request: Request) {
         if (consulta && !toolErrored) {
           const { error: logError } = await supabase
             .from("chatbot_queries")
-            .insert({ user_id: user.id, query: consulta, had_results: hadResults });
+            .insert({ user_id: user.id, query: consulta, had_results: hadResults, channel: "text" });
           if (logError) {
             console.error("Error logging chatbot query", { error: logError.message });
           }

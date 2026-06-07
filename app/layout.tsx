@@ -6,6 +6,8 @@ import { publicServerClient } from "@/lib/supabase/public-server";
 import { createClient } from "@/lib/supabase/server";
 import { ChatProvider } from "@/components/chat/chat-provider";
 import ChatWidget from "@/components/chat/chat-widget";
+import { VoiceProvider } from "@/components/voice/voice-provider";
+import VoiceWidget from "@/components/voice/voice-widget";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -56,8 +58,11 @@ export default async function RootLayout({
         <MobileAutoHideHeader categories={(categories ?? []) as HeaderCategory[]} />
         {user ? (
           <ChatProvider>
-            <main className="flex-1">{children}</main>
-            <ChatWidget />
+            <VoiceProvider>
+              <main className="flex-1">{children}</main>
+              <ChatWidget />
+              <VoiceWidget />
+            </VoiceProvider>
           </ChatProvider>
         ) : (
           <main className="flex-1">{children}</main>
