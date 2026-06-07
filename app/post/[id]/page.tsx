@@ -3,6 +3,7 @@ import PostAverageRating from "@/components/post-average-rating";
 import PostRatingControl from "@/components/post-rating-control";
 import CommentDeleteAction from "@/components/comment-delete-action";
 import MarkdownRenderer from "@/components/markdown-renderer";
+import PostCard from "@/components/post-card";
 import SubmitButton from "@/components/submit-button";
 import ScrollToTopOnMount from "./scroll-to-top-on-mount";
 import SummaryStatusSync from "./summary-status-sync";
@@ -855,43 +856,15 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
             <div>
               <span className="text-[#bacbb6] text-[10px] font-bold tracking-widest uppercase mb-6 block">Articulos relacionados</span>
               <div className="space-y-4">
-                {featuredCollectionPosts.map((relatedPost) => {
-                  const relatedYear = new Date(relatedPost.created_at).getFullYear();
-                  const yearLabel = Number.isFinite(relatedYear) ? String(relatedYear) : "----";
-
-                  return (
-                    <Link
-                      key={relatedPost.id}
-                      href={`/post/${relatedPost.id}`}
-                      className="flex items-center gap-4 group"
-                    >
-                      <div className="relative w-32 h-32 bg-[#181c20] rounded-xl overflow-hidden border border-[#3c4b3a]/30 group-hover:border-[#40fe6d]/50 transition-colors shrink-0">
-                        {relatedPost.imageUrl ? (
-                          <Image
-                            src={relatedPost.imageUrl}
-                            alt={relatedPost.title}
-                            fill
-                            sizes="200px"
-                            quality={80}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center px-1">
-                            <span className="text-[#bacbb6] text-[8px] uppercase tracking-widest leading-none mb-1">{yearLabel}</span>
-                            <span className="text-white font-bold leading-none text-[8px] uppercase tracking-widest text-center line-clamp-2">
-                              {relatedPost.title}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="text-white font-bold font-sans text-sm group-hover:text-[#40fe6d] transition-colors line-clamp-2">
-                          {relatedPost.title}
-                        </h4>
-                      </div>
-                    </Link>
-                  );
-                })}
+                {featuredCollectionPosts.map((relatedPost) => (
+                  <PostCard
+                    key={relatedPost.id}
+                    id={relatedPost.id}
+                    title={relatedPost.title}
+                    imageUrl={relatedPost.imageUrl}
+                    variant="compact"
+                  />
+                ))}
               </div>
             </div>
           ) : null}
