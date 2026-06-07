@@ -3,6 +3,9 @@ import { Inter, Manrope, Roboto } from "next/font/google";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { MobileAutoHideHeader, type HeaderCategory } from "@/components/mobile-auto-hide-header";
 import { publicServerClient } from "@/lib/supabase/public-server";
+import { createClient } from "@/lib/supabase/server";
+import { ChatProvider } from "@/components/chat/chat-provider";
+import ChatWidget from "@/components/chat/chat-widget";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -23,10 +26,8 @@ const roboto = Roboto({
 
 export const metadata: Metadata = {
   title: "Repositorio de Sistemas Inteligentes",
-  description: "Biblioteca curada de articulos sobre inteligencia artificial y sistemas inteligentes",
+  description: "Biblioteca de articulos sobre inteligencia artificial y sistemas inteligentes",
 };
-
-export const revalidate = 300;
 
 export default async function RootLayout({
   children,
@@ -38,6 +39,14 @@ export default async function RootLayout({
     .select("name, slug")
     .order("name");
 
+  // El chatbot requiere login: montamos el provider y el widget solo si hay sesión
+  // (gating server-side, coherente con el redirect de /chat). Leer la sesión vuelve
+  // el layout dinámico por request.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <html
       lang="es"
@@ -45,7 +54,14 @@ export default async function RootLayout({
     >
       <body className="min-h-screen flex flex-col text-[var(--foreground)] bg-[var(--background)]">
         <MobileAutoHideHeader categories={(categories ?? []) as HeaderCategory[]} />
-        <main className="flex-1">{children}</main>
+        {user ? (
+          <ChatProvider>
+            <main className="flex-1">{children}</main>
+            <ChatWidget />
+          </ChatProvider>
+        ) : (
+          <main className="flex-1">{children}</main>
+        )}
         <SpeedInsights />
       </body>
     </html>

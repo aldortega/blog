@@ -105,8 +105,8 @@ export default async function Home() {
               Repositorio de Sistemas Inteligentes
             </h2>
             <p className="font-body mt-5 max-w-xl text-lg leading-relaxed text-[var(--text-muted)]">
-              Biblioteca curada de articulos sobre inteligencia artificial: teoria,
-              aplicaciones y debate de comunidad.
+              Biblioteca de articulos sobre inteligencia artificial: teoria,
+              aplicaciones y debate.
             </p>
           </div>
 
