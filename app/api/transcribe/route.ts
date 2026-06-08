@@ -10,6 +10,17 @@ const MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const supabase = await createClient();
+
+  const { data: settingData } = await supabase
+    .from("site_settings")
+    .select("value")
+    .eq("key", "disable_ai")
+    .maybeSingle();
+
+  if (settingData?.value === true) {
+    return NextResponse.json({ error: "Las funciones de IA están deshabilitadas." }, { status: 400 });
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

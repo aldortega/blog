@@ -95,8 +95,12 @@ function CategoriesMenu({ categories }: { categories: HeaderCategory[] }) {
 
 export function MobileAutoHideHeader({
   categories = [],
+  isAiDisabled = false,
+  isAdmin = false,
 }: {
   categories?: HeaderCategory[];
+  isAiDisabled?: boolean;
+  isAdmin?: boolean;
 }) {
   const [isHidden, setIsHidden] = useState(false);
   const lastScrollY = useRef(0);
@@ -148,7 +152,7 @@ export function MobileAutoHideHeader({
             Foro
           </Link>
         </div>
-        <AuthButton />
+        <AuthButton isAdmin={isAdmin} isAiDisabled={isAiDisabled} />
       </div>
     </header>
   );

@@ -144,13 +144,24 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: post } = await supabase
-    .from("posts")
-    .select(
-      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, embeddings_status, chunks_count, profiles(display_name, avatar_url)",
-    )
-    .eq("id", id)
-    .maybeSingle();
+  // Fetch post and global settings in parallel
+  const [postRes, settingRes] = await Promise.all([
+    supabase
+      .from("posts")
+      .select(
+        "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, embeddings_status, chunks_count, profiles(display_name, avatar_url)",
+      )
+      .eq("id", id)
+      .maybeSingle(),
+    publicSupabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "disable_ai")
+      .maybeSingle(),
+  ]);
+
+  const post = postRes.data;
+  const isAiDisabled = settingRes.data?.value === true;
 
   if (!post) {
     notFound();
@@ -228,12 +239,15 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   // Artículos relacionados por similitud semántica (max-sim entre chunks vía
   // pgvector). Solo semánticos: si el post no tiene embeddings o nada supera el
   // umbral, el bloque queda vacío y no se muestra.
-  const { data: relatedMatches } = await publicSupabase.rpc("match_related_posts", {
-    p_post_id: id,
-    match_threshold: RELATED_SIMILARITY_THRESHOLD,
-    match_count: RELATED_MATCH_COUNT,
-  });
-  const relatedMatchRows = (relatedMatches ?? []) as RelatedMatchRow[];
+  const relatedMatchRows = isAiDisabled
+    ? []
+    : ((
+        await publicSupabase.rpc("match_related_posts", {
+          p_post_id: id,
+          match_threshold: RELATED_SIMILARITY_THRESHOLD,
+          match_count: RELATED_MATCH_COUNT,
+        })
+      ).data ?? []) as RelatedMatchRow[];
   const relatedMatchIds = relatedMatchRows.map((match) => match.post_id);
 
   const { data: relatedPosts } =
@@ -465,6 +479,16 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     "use server";
 
     const supabaseServer = await createClient();
+    const { data: settingData } = await supabaseServer
+      .from("site_settings")
+      .select("value")
+      .eq("key", "disable_ai")
+      .maybeSingle();
+
+    if (settingData?.value === true) {
+      redirect(`/post/${id}?error=summary_regenerate`);
+    }
+
     const {
       data: { user: actionUser },
     } = await supabaseServer.auth.getUser();
@@ -521,6 +545,16 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     "use server";
 
     const supabaseServer = await createClient();
+    const { data: settingData } = await supabaseServer
+      .from("site_settings")
+      .select("value")
+      .eq("key", "disable_ai")
+      .maybeSingle();
+
+    if (settingData?.value === true) {
+      redirect(`/post/${id}?error=embeddings_regenerate`);
+    }
+
     const {
       data: { user: actionUser },
     } = await supabaseServer.auth.getUser();
@@ -654,7 +688,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       <div className="max-w-[1400px] mx-auto px-6 lg:px-20 py-12 grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-16 lg:gap-24">
         {/* Left Column - Content */}
         <div className="min-w-0">
-          {showPendingSummary ? (
+          {showPendingSummary && !isAiDisabled ? (
             <section className="rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-5">
               <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#40fe6d]">
                 <Sparkles className="h-4 w-4" />
@@ -663,7 +697,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               <SummaryStatusSync postId={id} initialStatus={postRow.ai_summary_status} />
             </section>
           ) : null}
-          {postRow.ai_summary_status === "ready" && hasSummary ? (
+          {postRow.ai_summary_status === "ready" && hasSummary && !isAiDisabled ? (
             <section className="rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-5">
               <div className="flex items-center justify-between gap-4">
                 <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#40fe6d]">
@@ -680,7 +714,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               <MarkdownRenderer content={postRow.ai_summary ?? ""} compact className="mt-3" />
             </section>
           ) : null}
-          {showFailedSummary ? (
+          {showFailedSummary && !isAiDisabled ? (
             <section className="rounded-2xl border border-rose-900/40 bg-rose-950/20 px-6 py-5">
               <div className="flex items-center justify-between gap-4">
                 <p className="inline-flex items-center gap-2 text-sm font-semibold text-rose-300">
@@ -699,7 +733,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
             </section>
           ) : null}
 
-          {canManage ? (
+          {canManage && !isAiDisabled ? (
             <section className="mt-4 rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">

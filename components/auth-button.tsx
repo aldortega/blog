@@ -5,6 +5,8 @@ import { resolveAvatarSrc } from "@/lib/avatar";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { Sparkles } from "lucide-react";
+import { toggleAiFeature } from "@/app/settings-actions";
 
 type AuthUser = {
   name?: string;
@@ -54,7 +56,12 @@ function mapUser(user: { email?: string | null; user_metadata?: Record<string, u
   };
 }
 
-export function AuthButton() {
+type AuthButtonProps = {
+  isAdmin?: boolean;
+  isAiDisabled?: boolean;
+};
+
+export function AuthButton({ isAdmin = false, isAiDisabled = false }: AuthButtonProps) {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -62,6 +69,30 @@ export function AuthButton() {
   const [showMenu, setShowMenu] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const [localAiDisabled, setLocalAiDisabled] = useState(isAiDisabled);
+  const [prevIsAiDisabled, setPrevIsAiDisabled] = useState(isAiDisabled);
+
+  if (isAiDisabled !== prevIsAiDisabled) {
+    setLocalAiDisabled(isAiDisabled);
+    setPrevIsAiDisabled(isAiDisabled);
+  }
+
+  const handleToggleAi = async () => {
+    try {
+      setIsLoading(true);
+      const nextVal = !localAiDisabled;
+      setLocalAiDisabled(nextVal);
+      await toggleAiFeature(nextVal);
+      router.refresh();
+    } catch (error) {
+      setLocalAiDisabled(isAiDisabled);
+      console.error(error);
+      alert("Error al cambiar la configuración de la IA.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     async function loadInitialUser() {
@@ -164,10 +195,29 @@ export function AuthButton() {
         </button>
 
         {showMenu && (
-          <div className="absolute right-0 mt-2 w-40 rounded-xl border border-[var(--ghost-outline)] bg-[var(--surface-highest)] py-1 shadow-lg">
+          <div className="absolute right-0 mt-2 w-48 rounded-xl border border-[var(--ghost-outline)] bg-[var(--surface-highest)] py-1 shadow-lg overflow-hidden">
+            {isAdmin && (
+              <button
+                type="button"
+                className="w-full px-4 py-2.5 text-left text-sm font-body text-[var(--foreground)] hover:bg-[var(--surface-high)] flex items-center gap-2 border-b border-[var(--ghost-outline)] disabled:opacity-50"
+                onClick={handleToggleAi}
+                disabled={isLoading}
+              >
+                <Sparkles
+                  className={`h-4 w-4 shrink-0 transition-all ${
+                    localAiDisabled
+                      ? "text-[var(--text-muted)] opacity-60"
+                      : "text-[#40fe6d] animate-pulse"
+                  }`}
+                />
+                <span className="flex-1 font-medium truncate">
+                  {localAiDisabled ? "Activar IA" : "Desactivar IA"}
+                </span>
+              </button>
+            )}
             <button
               type="button"
-              className="w-full px-4 py-2 text-left text-sm font-body text-[var(--foreground)] hover:bg-[var(--surface-high)]"
+              className="w-full px-4 py-2.5 text-left text-sm font-body text-[var(--foreground)] hover:bg-[var(--surface-high)]"
               onClick={handleSignOut}
               disabled={isLoading}
             >

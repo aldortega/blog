@@ -38,9 +38,18 @@ type RatingAgg = { average: number | null; count: number };
 export default async function Home() {
   const supabase = publicServerClient;
   const authClient = await createClient();
-  const {
-    data: { user },
-  } = await authClient.auth.getUser();
+
+  // Fetch user and site settings in parallel
+  const [{ data: { user } }, { data: settingData }] = await Promise.all([
+    authClient.auth.getUser(),
+    supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "disable_ai")
+      .maybeSingle(),
+  ]);
+
+  const isAiDisabled = settingData?.value === true;
 
   // Pools globales en paralelo. Hero = mejor puntuado con >=1 voto (cae a reciente
   // si todavía no hay ratings). El resto son los candidatos de cada sección.
@@ -70,7 +79,7 @@ export default async function Home() {
   const viewedPostIds = new Set<string>();
   let personalizedSources: { xId: string; neighborIds: string[] }[] = [];
 
-  if (user) {
+  if (user && !isAiDisabled) {
     const { data: views } = await supabase
       .from("content_views")
       .select("post_id, created_at")

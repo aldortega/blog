@@ -18,6 +18,17 @@ const SESSION_HARD_LIMIT_MS = 6 * 60_000;
 
 export async function POST() {
   const supabase = await createClient();
+
+  const { data: settingData } = await supabase
+    .from("site_settings")
+    .select("value")
+    .eq("key", "disable_ai")
+    .maybeSingle();
+
+  if (settingData?.value === true) {
+    return NextResponse.json({ error: "Las funciones de IA están deshabilitadas." }, { status: 400 });
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

@@ -56,6 +56,20 @@ function parseMessages(raw: unknown): ChatMessage[] | null {
 
 export async function POST(request: Request) {
   const supabase = await createClient();
+
+  const { data: settingData } = await supabase
+    .from("site_settings")
+    .select("value")
+    .eq("key", "disable_ai")
+    .maybeSingle();
+
+  if (settingData?.value === true) {
+    return new Response(JSON.stringify({ error: "Las funciones de IA están deshabilitadas." }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

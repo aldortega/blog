@@ -1,11 +1,22 @@
 import { searchContent, MAX_QUERY_LENGTH, NO_RESULTS_MESSAGE } from "@/lib/ai/search";
 import { NextResponse } from "next/server";
+import { publicServerClient } from "@/lib/supabase/public-server";
 
 // Búsqueda semántica sobre la biblioteca. Pública (lectura libre): el gating de
 // login se aplica recién en la UI del chatbot (fase 5). La lógica vive en
 // lib/ai/search.ts, compartida con la tool del chatbot.
 
 export async function POST(request: Request) {
+  const { data: settingData } = await publicServerClient
+    .from("site_settings")
+    .select("value")
+    .eq("key", "disable_ai")
+    .maybeSingle();
+
+  if (settingData?.value === true) {
+    return NextResponse.json({ error: "Las funciones de IA están deshabilitadas." }, { status: 400 });
+  }
+
   let query: string;
   try {
     const body = await request.json();

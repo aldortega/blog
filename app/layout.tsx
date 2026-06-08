@@ -49,19 +49,38 @@ export default async function RootLayout({
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Fetch AI settings and user role in parallel
+  const [profileRes, settingRes] = await Promise.all([
+    user
+      ? supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    publicServerClient
+      .from("site_settings")
+      .select("value")
+      .eq("key", "disable_ai")
+      .maybeSingle(),
+  ]);
+
+  const isAdmin = profileRes.data?.role === "admin";
+  const isAiDisabled = settingRes.data?.value === true;
+
   return (
     <html
       lang="es"
       className={`${manrope.variable} ${inter.variable} ${roboto.variable} h-full antialiased`}
     >
       <body className="min-h-screen flex flex-col text-[var(--foreground)] bg-[var(--background)]">
-        <MobileAutoHideHeader categories={(categories ?? []) as HeaderCategory[]} />
+        <MobileAutoHideHeader
+          categories={(categories ?? []) as HeaderCategory[]}
+          isAiDisabled={isAiDisabled}
+          isAdmin={isAdmin}
+        />
         {user ? (
           <ChatProvider>
             <VoiceProvider>
               <main className="flex-1">{children}</main>
-              <ChatWidget />
-              <VoiceWidget />
+              {!isAiDisabled && <ChatWidget />}
+              {!isAiDisabled && <VoiceWidget />}
             </VoiceProvider>
           </ChatProvider>
         ) : (

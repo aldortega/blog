@@ -159,20 +159,29 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       redirect("/nuevo-post?error=post");
     }
 
-    after(async () => {
-      await generatePostSummary({
-        supabase: supabaseServer,
-        postId: post.id,
-        title,
-        content,
+    const { data: settingData } = await supabaseServer
+      .from("site_settings")
+      .select("value")
+      .eq("key", "disable_ai")
+      .maybeSingle();
+    const isAiDisabled = settingData?.value === true;
+
+    if (!isAiDisabled) {
+      after(async () => {
+        await generatePostSummary({
+          supabase: supabaseServer,
+          postId: post.id,
+          title,
+          content,
+        });
+        await generatePostEmbeddings({
+          supabase: supabaseServer,
+          postId: post.id,
+          title,
+          content,
+        });
       });
-      await generatePostEmbeddings({
-        supabase: supabaseServer,
-        postId: post.id,
-        title,
-        content,
-      });
-    });
+    }
 
     revalidatePath("/");
     redirect(`/post/${post.id}`);
