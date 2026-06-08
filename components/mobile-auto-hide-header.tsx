@@ -141,6 +141,12 @@ export function MobileAutoHideHeader({
             Sistemas Inteligentes
           </Link>
           {categories.length > 0 ? <CategoriesMenu categories={categories} /> : null}
+          <Link
+            href="/foro"
+            className="whitespace-nowrap text-sm font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--primary)]"
+          >
+            Foro
+          </Link>
         </div>
         <AuthButton />
       </div>

@@ -17,6 +17,8 @@ type CategorySelectProps = {
   name?: string;
   /** name del campo con el nombre de la categoría a crear al vuelo. */
   newCategoryName?: string;
+  /** Permite crear categorías al vuelo (solo admin). El foro lo desactiva. */
+  allowCreate?: boolean;
 };
 
 export default function CategorySelect({
@@ -25,10 +27,11 @@ export default function CategorySelect({
   required = false,
   name = "category_id",
   newCategoryName = "new_category",
+  allowCreate = true,
 }: CategorySelectProps) {
   const selectId = useId();
   const [value, setValue] = useState<string>(defaultCategoryId ?? "");
-  const isCreating = value === NEW_CATEGORY_VALUE;
+  const isCreating = allowCreate && value === NEW_CATEGORY_VALUE;
 
   return (
     <div className="space-y-3">
@@ -57,7 +60,7 @@ export default function CategorySelect({
             {category.name}
           </option>
         ))}
-        <option value={NEW_CATEGORY_VALUE}>+ Nueva categoría</option>
+        {allowCreate ? <option value={NEW_CATEGORY_VALUE}>+ Nueva categoría</option> : null}
       </select>
 
       {isCreating ? (

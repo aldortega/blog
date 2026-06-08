@@ -11,6 +11,11 @@ if (supabaseUrl) {
     hostname,
     pathname: "/storage/v1/object/public/post-images/**",
   });
+  remotePatterns.push({
+    protocol: "https",
+    hostname,
+    pathname: "/storage/v1/object/public/forum-images/**",
+  });
 }
 
 const nextConfig: NextConfig = {

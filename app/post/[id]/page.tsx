@@ -23,7 +23,7 @@ import { after } from "next/server";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Sparkles, Eye, MessageSquare } from "lucide-react";
+import { Sparkles, Eye, MessageSquare, MessagesSquare, Plus } from "lucide-react";
 
 type PostPageProps = {
   params: Promise<{ id: string }>;
@@ -258,6 +258,21 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       return { ...item, imageUrl };
     })
     .filter((item): item is RelatedPostRow & { imageUrl: string | null } => item !== null);
+
+  // Debates relacionados: hilos del foro vinculados a este artículo (top por score).
+  const { data: relatedThreads } = await publicSupabase
+    .from("forum_threads")
+    .select("id, title, reply_count, score")
+    .eq("content_id", id)
+    .order("score", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(5);
+  const relatedThreadList = (relatedThreads ?? []) as {
+    id: string;
+    title: string;
+    reply_count: number;
+    score: number;
+  }[];
 
   const imageUrl = postRow.image_path
     ? supabase.storage.from("post-images").getPublicUrl(postRow.image_path).data.publicUrl
@@ -868,6 +883,46 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               </div>
             </div>
           ) : null}
+
+          {/* Debates relacionados (foro) */}
+          <div>
+            <span className="mb-6 block text-[10px] font-bold uppercase tracking-widest text-[#bacbb6]">
+              Debates relacionados
+            </span>
+            {relatedThreadList.length > 0 ? (
+              <div className="space-y-3">
+                {relatedThreadList.map((thread) => (
+                  <Link
+                    key={thread.id}
+                    href={`/foro/${thread.id}`}
+                    className="group block rounded-xl border border-[#3c4b3a]/30 bg-[#181c20] p-4 transition-colors hover:border-[#40fe6d]/40"
+                  >
+                    <h4 className="line-clamp-2 text-sm font-bold text-white transition-colors group-hover:text-[#40fe6d]">
+                      {thread.title}
+                    </h4>
+                    <div className="mt-2 flex items-center gap-3 text-[11px] font-semibold text-[#bacbb6]">
+                      <span className="inline-flex items-center gap-1">
+                        <MessagesSquare className="h-3.5 w-3.5" />
+                        {thread.reply_count.toLocaleString("es-AR")}
+                      </span>
+                      <span>{thread.score.toLocaleString("es-AR")} pts</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="mb-4 text-sm text-[#bacbb6]/70">
+                Todavía no hay debates sobre este artículo.
+              </p>
+            )}
+            <Link
+              href={`/foro/nuevo?content=${id}`}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl border border-[#40fe6d]/40 px-4 py-2 text-xs font-bold uppercase tracking-widest text-[#40fe6d] transition-colors hover:bg-[#40fe6d]/10"
+            >
+              <Plus size={14} />
+              Abrir debate
+            </Link>
+          </div>
         </aside>
       </div>
     </div>
