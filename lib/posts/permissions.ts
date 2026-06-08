@@ -1,21 +1,9 @@
-type ManagePostParams = {
-  viewerId: string | null;
-  viewerRole: string | null;
-  postAuthorId: string;
-};
-
 export function isAdminRole(role: string | null): boolean {
   return role === "admin";
 }
 
-export function canManagePost({
-  viewerId,
-  viewerRole,
-  postAuthorId,
-}: ManagePostParams): boolean {
-  if (!viewerId) {
-    return false;
-  }
-
-  return isAdminRole(viewerRole) || viewerId === postAuthorId;
+// Crear/editar/borrar contenido (posts, categorías) es exclusivo de admins.
+// Refleja la RLS: solo role='admin' puede escribir en posts/categories.
+export function canManageContent(role: string | null): boolean {
+  return isAdminRole(role);
 }

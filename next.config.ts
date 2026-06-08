@@ -11,6 +11,11 @@ if (supabaseUrl) {
     hostname,
     pathname: "/storage/v1/object/public/post-images/**",
   });
+  remotePatterns.push({
+    protocol: "https",
+    hostname,
+    pathname: "/storage/v1/object/public/forum-images/**",
+  });
 }
 
 const nextConfig: NextConfig = {
@@ -18,11 +23,6 @@ const nextConfig: NextConfig = {
     qualities: [75,80,85, 100],
     remotePatterns: [
       ...remotePatterns,
-      {
-        protocol: "https",
-        hostname: "image.tmdb.org",
-        pathname: "/t/p/**",
-      },
       {
         protocol: "https",
         hostname: "lh3.googleusercontent.com",

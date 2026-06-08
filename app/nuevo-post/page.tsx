@@ -1,24 +1,25 @@
 import { createClient } from "@/lib/supabase/server";
 import { normalizeAvatarUrl } from "@/lib/avatar";
-import MovieSearch from "@/components/movie-search";
 import PostImageUpload from "@/components/post-image-upload";
 import MarkdownEditor from "@/components/markdown-editor";
+import CategorySelect from "@/components/category-select";
 import SubmitButton from "@/components/submit-button";
+import { canManageContent } from "@/lib/posts/permissions";
+import { resolveCategoryId } from "@/lib/categories";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
 import { after } from "next/server";
 import { generatePostSummary } from "@/lib/ai/generate-post-summary";
+import { generatePostEmbeddings } from "@/lib/ai/embeddings";
 
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ERROR_MESSAGES: Record<string, string> = {
-  invalid: "Faltan campos obligatorios (titulo, imagen o contenido).",
+  invalid: "Faltan campos obligatorios (titulo, imagen, categoria o contenido).",
   image_invalid: "La imagen debe ser JPG/PNG/WEBP y pesar menos de 5MB.",
   profile: "No se pudo crear/actualizar tu perfil de autor.",
-  movie_required: "Debes seleccionar una pelicula para publicar.",
-  movie: "No se pudo asociar la pelicula seleccionada.",
   image_upload: "No se pudo subir la imagen del post al storage.",
+  category: "No se pudo crear o asignar la categoria.",
   post: "No se pudo guardar el post en la base de datos.",
 };
 
@@ -36,6 +37,21 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     redirect("/");
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (!canManageContent(typeof profile?.role === "string" ? profile.role : null)) {
+    redirect("/");
+  }
+
+  const { data: categories } = await supabase
+    .from("categories")
+    .select("id, name")
+    .order("name");
+
   const { error: errorCode } = await searchParams;
 
   async function createPost(formData: FormData) {
@@ -50,26 +66,30 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       redirect("/");
     }
 
+    const { data: actionProfile } = await supabaseServer
+      .from("profiles")
+      .select("role")
+      .eq("id", actionUser.id)
+      .maybeSingle();
+
+    if (!canManageContent(typeof actionProfile?.role === "string" ? actionProfile.role : null)) {
+      redirect("/");
+    }
+
     const title = String(formData.get("title") ?? "").trim();
     const content = String(formData.get("content") ?? "").trim();
-    const tmdbIdInput = String(formData.get("tmdb_id") ?? "").trim();
-    const movieTitle = String(formData.get("movie_title") ?? "").trim();
-    const movieReleaseDateInput = String(formData.get("movie_release_date") ?? "").trim();
-    const movieOverviewInput = String(formData.get("movie_overview") ?? "").trim();
     const imageFile = formData.get("image");
+    const categoryId = String(formData.get("category_id") ?? "").trim();
+    const newCategory = String(formData.get("new_category") ?? "").trim();
 
-    if (!title || !content || !(imageFile instanceof File) || imageFile.size === 0) {
+    if (
+      !title ||
+      !content ||
+      !(imageFile instanceof File) ||
+      imageFile.size === 0 ||
+      (!categoryId && !newCategory)
+    ) {
       redirect("/nuevo-post?error=invalid");
-    }
-
-    const tmdbId = Number.parseInt(tmdbIdInput, 10);
-    if (!Number.isFinite(tmdbId) || tmdbId <= 0 || !movieTitle) {
-      redirect("/nuevo-post?error=movie_required");
-    }
-
-    const tmdbMovie = await fetchTmdbMovieDetails(tmdbId);
-    if (!tmdbMovie) {
-      redirect("/nuevo-post?error=movie");
     }
 
     if (imageFile.size > MAX_IMAGE_SIZE_BYTES || !ALLOWED_IMAGE_TYPES.has(imageFile.type)) {
@@ -96,26 +116,6 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       redirect("/nuevo-post?error=profile");
     }
 
-    const { data: movie, error: movieError } = await supabaseServer
-      .from("movies")
-      .upsert(
-        {
-          tmdb_id: tmdbId,
-          title: tmdbMovie.title,
-          release_date: tmdbMovie.releaseDate ?? (movieReleaseDateInput || null),
-          overview: tmdbMovie.overview ?? (movieOverviewInput || null),
-          director: tmdbMovie.director,
-          poster_path: tmdbMovie.posterPath,
-        },
-        { onConflict: "tmdb_id" },
-      )
-      .select("id")
-      .single();
-
-    if (movieError || !movie) {
-      redirect("/nuevo-post?error=movie");
-    }
-
     const fileNameParts = imageFile.name.split(".");
     const rawExt = fileNameParts.length > 1 ? fileNameParts.pop() ?? "" : "";
     const extension = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
@@ -132,14 +132,24 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       redirect("/nuevo-post?error=image_upload");
     }
 
+    const { categoryId: resolvedCategoryId, error: categoryError } = await resolveCategoryId(
+      supabaseServer,
+      { categoryId, newCategoryName: newCategory },
+    );
+
+    if (categoryError) {
+      await supabaseServer.storage.from("post-images").remove([imagePath]);
+      redirect("/nuevo-post?error=category");
+    }
+
     const { data: post, error: postError } = await supabaseServer
       .from("posts")
       .insert({
         author_id: actionUser.id,
-        movie_id: movie.id,
         title,
         content,
         image_path: imagePath,
+        category_id: resolvedCategoryId,
       })
       .select("id")
       .single();
@@ -151,6 +161,12 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
 
     after(async () => {
       await generatePostSummary({
+        supabase: supabaseServer,
+        postId: post.id,
+        title,
+        content,
+      });
+      await generatePostEmbeddings({
         supabase: supabaseServer,
         postId: post.id,
         title,
@@ -169,7 +185,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
           Crear nuevo post
         </h1>
         <p className="text-[#bacbb6] font-body text-lg">
-          Crea tu analisis cinematografico para la comunidad.
+          Publica un articulo para el repositorio de sistemas inteligentes.
         </p>
 
         {errorCode ? (
@@ -191,15 +207,14 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
           />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <MovieSearch />
-          <PostImageUpload required emptyLabel="Subir portada o arrastrar y soltar" />
-        </div>
+        <PostImageUpload required emptyLabel="Subir portada o arrastrar y soltar" />
+
+        <CategorySelect required categories={categories ?? []} />
 
         <MarkdownEditor
           required
           name="content"
-          placeholder="Escribe tu analisis..."
+          placeholder="Escribe el contenido del articulo..."
         />
 
         {/* Action Buttons */}

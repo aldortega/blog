@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import { Inter, Manrope, Roboto } from "next/font/google";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { MobileAutoHideHeader } from "@/components/mobile-auto-hide-header";
+import { MobileAutoHideHeader, type HeaderCategory } from "@/components/mobile-auto-hide-header";
+import { publicServerClient } from "@/lib/supabase/public-server";
+import { createClient } from "@/lib/supabase/server";
+import { ChatProvider } from "@/components/chat/chat-provider";
+import ChatWidget from "@/components/chat/chat-widget";
+import { VoiceProvider } from "@/components/voice/voice-provider";
+import VoiceWidget from "@/components/voice/voice-widget";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -21,23 +27,46 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
-  title: "Artificial Stories",
-  description: "Base del blog para analisis de peliculas sobre inteligencia artificial",
+  title: "Repositorio de Sistemas Inteligentes",
+  description: "Biblioteca de articulos sobre inteligencia artificial y sistemas inteligentes",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { data: categories } = await publicServerClient
+    .from("categories")
+    .select("name, slug")
+    .order("name");
+
+  // El chatbot requiere login: montamos el provider y el widget solo si hay sesión
+  // (gating server-side, coherente con el redirect de /chat). Leer la sesión vuelve
+  // el layout dinámico por request.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <html
       lang="es"
       className={`${manrope.variable} ${inter.variable} ${roboto.variable} h-full antialiased`}
     >
       <body className="min-h-screen flex flex-col text-[var(--foreground)] bg-[var(--background)]">
-        <MobileAutoHideHeader />
-        <main className="flex-1">{children}</main>
+        <MobileAutoHideHeader categories={(categories ?? []) as HeaderCategory[]} />
+        {user ? (
+          <ChatProvider>
+            <VoiceProvider>
+              <main className="flex-1">{children}</main>
+              <ChatWidget />
+              <VoiceWidget />
+            </VoiceProvider>
+          </ChatProvider>
+        ) : (
+          <main className="flex-1">{children}</main>
+        )}
         <SpeedInsights />
       </body>
     </html>

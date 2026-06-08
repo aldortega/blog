@@ -3,24 +3,27 @@ import PostAverageRating from "@/components/post-average-rating";
 import PostRatingControl from "@/components/post-rating-control";
 import CommentDeleteAction from "@/components/comment-delete-action";
 import MarkdownRenderer from "@/components/markdown-renderer";
+import PostCard from "@/components/post-card";
 import SubmitButton from "@/components/submit-button";
 import ScrollToTopOnMount from "./scroll-to-top-on-mount";
 import SummaryStatusSync from "./summary-status-sync";
 import RegenerateSummaryButton from "./regenerate-summary-button";
+import RegenerateEmbeddingsButton from "./regenerate-embeddings-button";
+import EmbeddingsStatusSync from "./embeddings-status-sync";
 import SummaryGeneratingTitle from "./summary-generating-title";
-import { canManagePost } from "@/lib/posts/permissions";
+import { canManageContent } from "@/lib/posts/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { publicServerClient } from "@/lib/supabase/public-server";
-import { relationFirst, relationText, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
-import { fetchTmdbMovieDetails } from "@/lib/tmdb/movie-details";
+import { relationText, type RelationOneOrMany } from "@/lib/supabase/relation-utils";
 import { generatePostSummary } from "@/lib/ai/generate-post-summary";
+import { generatePostEmbeddings } from "@/lib/ai/embeddings";
 import { resolveAvatarSrc } from "@/lib/avatar";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Eye, MessageSquare, MessagesSquare, Plus } from "lucide-react";
 
 type PostPageProps = {
   params: Promise<{ id: string }>;
@@ -42,6 +45,11 @@ type RelatedPostRow = {
   image_path: string | null;
 };
 
+type RelatedMatchRow = {
+  post_id: string;
+  similarity: number;
+};
+
 type RatingRow = {
   post_id: string;
   score: number | string;
@@ -58,14 +66,8 @@ type PostRow = {
   ai_summary_status: "pending" | "generating" | "ready" | "failed";
   ai_summary_attempts: number;
   ai_summary_generated_at: string | null;
-  movies: RelationOneOrMany<{
-    tmdb_id: number;
-    title: string;
-    release_date: string | null;
-    overview: string | null;
-    director: string | null;
-    poster_path: string | null;
-  }>;
+  embeddings_status: "pending" | "generating" | "ready" | "failed";
+  chunks_count: number;
   profiles: RelationOneOrMany<{ display_name: string | null; avatar_url: string | null }>;
 };
 
@@ -82,10 +84,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   rating_save: "No se pudo guardar tu puntuacion. Intenta nuevamente.",
   rating_delete: "No se pudo quitar tu puntuacion. Intenta nuevamente.",
   summary_regenerate: "No se pudo regenerar el resumen. Intenta nuevamente.",
+  embeddings_regenerate: "No se pudo regenerar los embeddings. Intenta nuevamente.",
 };
 
 const COMMENTS_PAGE_SIZE = 20;
-const RELATED_POSTS_FETCH_LIMIT = 12;
+// Relacionados semánticos: mismo umbral coseno que /api/search.
+const RELATED_SIMILARITY_THRESHOLD = 0.5;
+const RELATED_MATCH_COUNT = 4;
 
 function formatRelativeCommentTime(dateString: string): string {
   const timestamp = new Date(dateString).getTime();
@@ -142,7 +147,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const { data: post } = await supabase
     .from("posts")
     .select(
-      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, movies(tmdb_id, title, release_date, overview, director, poster_path), profiles(display_name, avatar_url)",
+      "id, author_id, title, content, created_at, image_path, ai_summary, ai_summary_status, ai_summary_attempts, ai_summary_generated_at, embeddings_status, chunks_count, profiles(display_name, avatar_url)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -156,14 +161,17 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const showPendingSummary = postRow.ai_summary_status === "pending" || postRow.ai_summary_status === "generating";
   const showFailedSummary =
     postRow.ai_summary_status === "failed" || (postRow.ai_summary_status === "ready" && !hasSummary);
+  const embeddingsStatus = postRow.embeddings_status;
+  const chunksCount = postRow.chunks_count ?? 0;
+  const embeddingsIndexing = embeddingsStatus === "pending" || embeddingsStatus === "generating";
 
   const [
     { data: viewerProfile },
     { data: comments },
     { count: commentsCount },
+    { count: viewsCount },
     { data: postRatings },
     { data: viewerRatingRow },
-    { data: relatedPosts },
   ] =
     await Promise.all([
       user
@@ -180,28 +188,32 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
         .select("id", { count: "exact", head: true })
         .eq("post_id", id),
       publicSupabase
+        .from("content_views")
+        .select("id", { count: "exact", head: true })
+        .eq("post_id", id),
+      publicSupabase
         .from("ratings")
         .select("post_id, score")
         .eq("post_id", id),
       user
         ? supabase.from("ratings").select("score").eq("post_id", id).eq("user_id", user.id).maybeSingle()
         : Promise.resolve({ data: null }),
-      supabase
-        .from("posts")
-        .select("id, title, created_at, image_path")
-        .neq("id", id)
-        .order("created_at", { ascending: false })
-        .limit(RELATED_POSTS_FETCH_LIMIT),
     ]);
 
   const viewerRole = typeof viewerProfile?.role === "string" ? viewerProfile.role : null;
-  const canManage = canManagePost({
-    viewerId: user?.id ?? null,
-    viewerRole,
-    postAuthorId: postRow.author_id,
-  });
+  const canManage = canManageContent(viewerRole);
   const commentList = (comments ?? []) as CommentRow[];
   const totalComments = commentsCount ?? 0;
+  const totalViews = viewsCount ?? 0;
+
+  // Registramos la apertura del post fuera del render (logueado o anónimo). La RLS
+  // permite el insert con user_id null o igual al usuario actual.
+  after(async () => {
+    await supabase.from("content_views").insert({
+      post_id: id,
+      user_id: user?.id ?? null,
+    });
+  });
   const totalCommentPages = Math.max(1, Math.ceil(totalComments / COMMENTS_PAGE_SIZE));
   const hasPreviousCommentsPage = currentCommentsPage > 1;
   const hasNextCommentsPage = currentCommentsPage < totalCommentPages;
@@ -213,71 +225,54 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const avgRating = totalRatings > 0 ? postScores.reduce((sum, score) => sum + score, 0) / totalRatings : null;
   const viewerRating = viewerRatingRow?.score ?? null;
   const normalizedViewerRating = viewerRating === null ? null : Number(viewerRating);
-  const relatedPostRows = (relatedPosts ?? []) as RelatedPostRow[];
-  const relatedPostIds = relatedPostRows.map((postItem) => postItem.id);
-  const relatedRatingsAggregateQuery =
-    relatedPostIds.length === 0
-      ? Promise.resolve({ data: [] as RatingRow[] })
-      : publicSupabase
-        .from("ratings")
-        .select("post_id, score")
-        .in("post_id", relatedPostIds);
-  const { data: relatedRatingAggregates } = await relatedRatingsAggregateQuery;
-  const relatedRatingRows = (relatedRatingAggregates ?? []) as RatingRow[];
-  const ratingByRelatedPost = new Map<
-    string,
-    {
-      ratingsCount: number;
-      scoreSum: number;
-    }
-  >();
+  // Artículos relacionados por similitud semántica (max-sim entre chunks vía
+  // pgvector). Solo semánticos: si el post no tiene embeddings o nada supera el
+  // umbral, el bloque queda vacío y no se muestra.
+  const { data: relatedMatches } = await publicSupabase.rpc("match_related_posts", {
+    p_post_id: id,
+    match_threshold: RELATED_SIMILARITY_THRESHOLD,
+    match_count: RELATED_MATCH_COUNT,
+  });
+  const relatedMatchRows = (relatedMatches ?? []) as RelatedMatchRow[];
+  const relatedMatchIds = relatedMatchRows.map((match) => match.post_id);
 
-  for (const rating of relatedRatingRows) {
-    const score = Number(rating.score);
-    if (!Number.isFinite(score)) {
-      continue;
-    }
-    const current = ratingByRelatedPost.get(rating.post_id) ?? { ratingsCount: 0, scoreSum: 0 };
-    current.ratingsCount += 1;
-    current.scoreSum += score;
-    ratingByRelatedPost.set(rating.post_id, current);
+  const { data: relatedPosts } =
+    relatedMatchIds.length === 0
+      ? { data: [] as RelatedPostRow[] }
+      : await publicSupabase.from("posts").select("id, title, created_at, image_path").in("id", relatedMatchIds);
+  const relatedPostById = new Map<string, RelatedPostRow>();
+  for (const postItem of (relatedPosts ?? []) as RelatedPostRow[]) {
+    relatedPostById.set(postItem.id, postItem);
   }
 
-  const featuredCollectionPosts = relatedPostRows
-    .map((item) => {
-      const rating = ratingByRelatedPost.get(item.id);
-      const ratingsCount = rating?.ratingsCount ?? 0;
-      const averageRating = rating && rating.ratingsCount > 0 ? rating.scoreSum / rating.ratingsCount : null;
+  // Preserva el orden por similitud que devolvió la RPC.
+  const featuredCollectionPosts = relatedMatchRows
+    .map((match) => {
+      const item = relatedPostById.get(match.post_id);
+      if (!item) {
+        return null;
+      }
       const imageUrl = item.image_path
         ? supabase.storage.from("post-images").getPublicUrl(item.image_path).data.publicUrl
         : null;
-
-      return {
-        ...item,
-        ratingsCount,
-        averageRating,
-        imageUrl,
-      };
+      return { ...item, imageUrl };
     })
-    .sort((a, b) => {
-      const aHasRatings = a.averageRating !== null;
-      const bHasRatings = b.averageRating !== null;
+    .filter((item): item is RelatedPostRow & { imageUrl: string | null } => item !== null);
 
-      if (aHasRatings !== bHasRatings) {
-        return aHasRatings ? -1 : 1;
-      }
-
-      if (a.averageRating !== b.averageRating) {
-        return (b.averageRating ?? -1) - (a.averageRating ?? -1);
-      }
-
-      if (a.ratingsCount !== b.ratingsCount) {
-        return b.ratingsCount - a.ratingsCount;
-      }
-
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    })
-    .slice(0, 3);
+  // Debates relacionados: hilos del foro vinculados a este artículo (top por score).
+  const { data: relatedThreads } = await publicSupabase
+    .from("forum_threads")
+    .select("id, title, reply_count, score")
+    .eq("content_id", id)
+    .order("score", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(5);
+  const relatedThreadList = (relatedThreads ?? []) as {
+    id: string;
+    title: string;
+    reply_count: number;
+    score: number;
+  }[];
 
   const imageUrl = postRow.image_path
     ? supabase.storage.from("post-images").getPublicUrl(postRow.image_path).data.publicUrl
@@ -295,23 +290,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     authorName,
     { background: "101418", color: "e0e3e8" },
   );
-  const movie = relationFirst(postRow.movies);
-
-  const needsTmdbFallback = Boolean(
-    movie &&
-    movie.tmdb_id &&
-    (!movie.poster_path || !movie.director || !movie.overview || !movie.release_date),
-  );
-  const fallbackMovie = needsTmdbFallback ? await fetchTmdbMovieDetails(movie!.tmdb_id) : null;
-
-  const movieTitle = movie?.title ?? fallbackMovie?.title ?? "Pelicula sin titulo";
-  const movieYear =
-    movie?.release_date?.substring(0, 4) ?? fallbackMovie?.releaseDate?.substring(0, 4) ?? "----";
-  const movieDirector = movie?.director ?? fallbackMovie?.director ?? "Director desconocido";
-  const movieOverview =
-    movie?.overview ?? fallbackMovie?.overview ?? "Sin descripcion disponible para esta pelicula.";
-  const moviePosterPath = movie?.poster_path ?? fallbackMovie?.posterPath ?? null;
-  const moviePosterUrl = moviePosterPath ? `https://image.tmdb.org/t/p/w780${moviePosterPath}` : null;
   const commentsPageHref = (page: number) => {
     const params = new URLSearchParams();
     if (errorCode) {
@@ -346,11 +324,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     }
 
     const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
-    const isAllowed = canManagePost({
-      viewerId: actionUser.id,
-      viewerRole: actionRole,
-      postAuthorId: targetPost.author_id,
-    });
+    const isAllowed = canManageContent(actionRole);
 
     if (!isAllowed) {
       redirect(`/post/${id}?error=unauthorized`);
@@ -509,11 +483,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     }
 
     const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
-    const isAllowed = canManagePost({
-      viewerId: actionUser.id,
-      viewerRole: actionRole,
-      postAuthorId: targetPost.author_id,
-    });
+    const isAllowed = canManageContent(actionRole);
 
     if (!isAllowed) {
       redirect(`/post/${id}?error=unauthorized`);
@@ -547,6 +517,61 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     redirect(`/post/${id}`);
   }
 
+  async function regenerateEmbeddings() {
+    "use server";
+
+    const supabaseServer = await createClient();
+    const {
+      data: { user: actionUser },
+    } = await supabaseServer.auth.getUser();
+
+    if (!actionUser) {
+      redirect(`/post/${id}?error=unauthorized`);
+    }
+
+    const [{ data: targetPost }, { data: actionProfile }] = await Promise.all([
+      supabaseServer.from("posts").select("title, content").eq("id", id).maybeSingle(),
+      supabaseServer.from("profiles").select("role").eq("id", actionUser.id).maybeSingle(),
+    ]);
+
+    if (!targetPost) {
+      redirect("/");
+    }
+
+    const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
+
+    if (!canManageContent(actionRole)) {
+      redirect(`/post/${id}?error=unauthorized`);
+    }
+
+    const { error: resetError } = await supabaseServer
+      .from("posts")
+      .update({
+        embeddings_status: "pending",
+        embeddings_attempts: 0,
+        embeddings_generated_at: null,
+      })
+      .eq("id", id);
+
+    if (resetError) {
+      redirect(`/post/${id}?error=embeddings_regenerate`);
+    }
+
+    after(async () => {
+      await generatePostEmbeddings({
+        supabase: supabaseServer,
+        postId: id,
+        title: targetPost.title,
+        content: targetPost.content,
+        force: true,
+      });
+      revalidatePath(`/post/${id}`);
+    });
+
+    revalidatePath(`/post/${id}`);
+    redirect(`/post/${id}`);
+  }
+
   return (
     <div className="min-h-screen bg-[#101418] text-[#e0e3e8] font-body selection:bg-[#40fe6d]/30 pb-20">
       <ScrollToTopOnMount />
@@ -561,7 +586,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               className="object-cover object-top opacity-80"
               priority
             />
-            {/* Cinematic Gradient Mask */}
+            {/* Gradient Mask */}
             <div className="absolute inset-0 bg-gradient-to-t from-[#101418] via-[#101418]/60 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-r from-[#101418]/90 via-transparent to-transparent" />
           </div>
@@ -608,6 +633,16 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                 initialViewerRating={normalizedViewerRating}
                 textClassName="text-sm font-semibold text-white"
               />
+              <div className="flex items-center gap-4 text-sm font-semibold text-[#bacbb6]">
+                <span className="inline-flex items-center gap-1.5" title="Vistas">
+                  <Eye className="h-4 w-4" />
+                  {totalViews.toLocaleString("es-AR")}
+                </span>
+                <span className="inline-flex items-center gap-1.5" title="Comentarios">
+                  <MessageSquare className="h-4 w-4" />
+                  {totalComments.toLocaleString("es-AR")}
+                </span>
+              </div>
               {canManage ? <PostOwnerActions postId={id} onDelete={deletePost} /> : null}
 
             </div>
@@ -661,6 +696,42 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
               <p className="mt-2 text-sm text-rose-200/90">
                 No se pudo generar el resumen para este post.
               </p>
+            </section>
+          ) : null}
+
+          {canManage ? (
+            <section className="mt-4 rounded-2xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#40fe6d]">
+                    <Sparkles className="h-4 w-4" />
+                    Búsqueda semántica (RAG)
+                  </p>
+                  <p className="mt-1 text-xs text-[#bacbb6]">
+                    {embeddingsIndexing
+                      ? "Indexando el contenido..."
+                      : embeddingsStatus === "ready" && chunksCount > 0
+                        ? `Indexado · ${chunksCount} ${chunksCount === 1 ? "fragmento" : "fragmentos"}`
+                        : embeddingsStatus === "ready"
+                          ? "Sin fragmentos para indexar."
+                          : "Sin indexar. Regenera para incluirlo en la búsqueda y los relacionados."}
+                  </p>
+                </div>
+                {!embeddingsIndexing ? (
+                  <form action={regenerateEmbeddings}>
+                    <RegenerateEmbeddingsButton
+                      className={
+                        embeddingsStatus === "failed"
+                          ? "text-rose-200 transition hover:text-rose-100 disabled:opacity-70"
+                          : "text-[#bacbb6] transition hover:text-[#40fe6d] disabled:opacity-70"
+                      }
+                    />
+                  </form>
+                ) : null}
+              </div>
+              {embeddingsIndexing ? (
+                <EmbeddingsStatusSync postId={id} initialStatus={embeddingsStatus} />
+              ) : null}
             </section>
           ) : null}
 
@@ -795,86 +866,63 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
 
         {/* Right Column - Sidebar */}
         <aside className="space-y-12">
-          {/* Film Context Card */}
-          <div className="bg-[#181c20] rounded-2xl overflow-hidden flex flex-col border border-[#181c20]">
-            <div className="relative w-full aspect-[2/3] bg-[#0b0f12]">
-              {moviePosterUrl ? (
-                <Image
-                  src={moviePosterUrl}
-                  alt={movieTitle}
-                  fill
-                  sizes="(max-width: 1024px) 100vw, 380px"
-                  quality={85}
-                  className="object-contain opacity-95"
-                />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-tr from-[#101418] to-[#181c20]" />
-              )}
-              {/* Overlay gradient for poster mask */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#181c20] via-[#181c20]/30 to-transparent" />
-            </div>
-            <div className="p-8 pt-0 -mt-4 relative z-10">
-              <div className="grid grid-cols-2 gap-4 mb-8 text-sm">
-                <div>
-                  <span className="block text-[#bacbb6] text-[10px] tracking-widest uppercase mb-1">Año</span>
-                  <span className="text-white font-bold">{movieYear}</span>
-                </div>
-                <div>
-                  <span className="block text-[#bacbb6] text-[10px] tracking-widest uppercase mb-1">Director</span>
-                  <span className="text-white font-bold">{movieDirector}</span>
-                </div>
-              </div>
-              <p className="text-[#bacbb6] text-sm leading-relaxed">{movieOverview}</p>
-
-
-            </div>
-          </div>
-
-          {/* Coleccion destacada */}
+          {/* Articulos relacionados (similitud semantica) */}
           {featuredCollectionPosts.length > 0 ? (
             <div>
-              <span className="text-[#bacbb6] text-[10px] font-bold tracking-widest uppercase mb-6 block">Coleccion destacada</span>
+              <span className="text-[#bacbb6] text-[10px] font-bold tracking-widest uppercase mb-6 block">Articulos relacionados</span>
               <div className="space-y-4">
-                {featuredCollectionPosts.map((relatedPost) => {
-                  const relatedYear = new Date(relatedPost.created_at).getFullYear();
-                  const yearLabel = Number.isFinite(relatedYear) ? String(relatedYear) : "----";
-
-                  return (
-                    <Link
-                      key={relatedPost.id}
-                      href={`/post/${relatedPost.id}`}
-                      className="flex items-center gap-4 group"
-                    >
-                      <div className="relative w-32 h-32 bg-[#181c20] rounded-xl overflow-hidden border border-[#3c4b3a]/30 group-hover:border-[#40fe6d]/50 transition-colors shrink-0">
-                        {relatedPost.imageUrl ? (
-                          <Image
-                            src={relatedPost.imageUrl}
-                            alt={relatedPost.title}
-                            fill
-                            sizes="200px"
-                            quality={80}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center px-1">
-                            <span className="text-[#bacbb6] text-[8px] uppercase tracking-widest leading-none mb-1">{yearLabel}</span>
-                            <span className="text-white font-bold leading-none text-[8px] uppercase tracking-widest text-center line-clamp-2">
-                              {relatedPost.title}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="text-white font-bold font-sans text-sm group-hover:text-[#40fe6d] transition-colors line-clamp-2">
-                          {relatedPost.title}
-                        </h4>
-                      </div>
-                    </Link>
-                  );
-                })}
+                {featuredCollectionPosts.map((relatedPost) => (
+                  <PostCard
+                    key={relatedPost.id}
+                    id={relatedPost.id}
+                    title={relatedPost.title}
+                    imageUrl={relatedPost.imageUrl}
+                    variant="compact"
+                  />
+                ))}
               </div>
             </div>
           ) : null}
+
+          {/* Debates relacionados (foro) */}
+          <div>
+            <span className="mb-6 block text-[10px] font-bold uppercase tracking-widest text-[#bacbb6]">
+              Debates relacionados
+            </span>
+            {relatedThreadList.length > 0 ? (
+              <div className="space-y-3">
+                {relatedThreadList.map((thread) => (
+                  <Link
+                    key={thread.id}
+                    href={`/foro/${thread.id}`}
+                    className="group block rounded-xl border border-[#3c4b3a]/30 bg-[#181c20] p-4 transition-colors hover:border-[#40fe6d]/40"
+                  >
+                    <h4 className="line-clamp-2 text-sm font-bold text-white transition-colors group-hover:text-[#40fe6d]">
+                      {thread.title}
+                    </h4>
+                    <div className="mt-2 flex items-center gap-3 text-[11px] font-semibold text-[#bacbb6]">
+                      <span className="inline-flex items-center gap-1">
+                        <MessagesSquare className="h-3.5 w-3.5" />
+                        {thread.reply_count.toLocaleString("es-AR")}
+                      </span>
+                      <span>{thread.score.toLocaleString("es-AR")} pts</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="mb-4 text-sm text-[#bacbb6]/70">
+                Todavía no hay debates sobre este artículo.
+              </p>
+            )}
+            <Link
+              href={`/foro/nuevo?content=${id}`}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl border border-[#40fe6d]/40 px-4 py-2 text-xs font-bold uppercase tracking-widest text-[#40fe6d] transition-colors hover:bg-[#40fe6d]/10"
+            >
+              <Plus size={14} />
+              Abrir debate
+            </Link>
+          </div>
         </aside>
       </div>
     </div>
