@@ -235,9 +235,31 @@ export default function MarkdownRenderer({
           thead: ({ children }) => <thead className="bg-[#1f262b]">{children}</thead>,
           th: ({ children }) => <th className="border border-[#3c4b3a]/40 px-3 py-2 font-semibold">{children}</th>,
           td: ({ children }) => <td className="border border-[#3c4b3a]/30 px-3 py-2 text-[#d8dde5]">{children}</td>,
-          code: ({ children }) => (
-            <code className="rounded bg-[#0f1518] px-1.5 py-0.5 text-[0.9em] text-[#b6ffc8]">{children}</code>
+          pre: ({ children }) => (
+            <pre className="my-6 overflow-x-auto rounded-xl border border-[#3c4b3a]/30 bg-[#0f1518] p-4 text-sm leading-relaxed">
+              {children}
+            </pre>
           ),
+          code: ({ className, children }) => {
+            const text = String(children ?? "");
+            // Bloque (dentro de <pre>): tiene clase language-* o contiene saltos de
+            // línea. Lo dejamos sin "pill" (el fondo lo pone el <pre>) y con
+            // whitespace-pre para que el <pre> haga scroll horizontal.
+            const isBlock =
+              (typeof className === "string" && className.includes("language-")) || text.includes("\n");
+            if (isBlock) {
+              return (
+                <code className={`${className ?? ""} block whitespace-pre text-[0.85em] text-[#b6ffc8]`}>
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code className="rounded bg-[#0f1518] px-1.5 py-0.5 text-[0.9em] text-[#b6ffc8] break-words">
+                {children}
+              </code>
+            );
+          },
         }}
       >
         {content}
