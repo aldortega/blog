@@ -29,6 +29,7 @@ const SYSTEM_PROMPT = [
   "",
   "Grounding (importante, pero conversacional):",
   `- Ante preguntas sobre temas de IA o sobre el contenido de la biblioteca, llamá a la herramienta ${SEARCH_TOOL_NAME} y basá tu respuesta en lo que devuelve. No inventes datos del corpus.`,
+  "- Ofrecé siempre un resumen muy breve y directo de la información útil. No transcribas ni repitas el fragmento o el artículo entero del que estás citando; tu objetivo es resumir y sintetizar.",
   `- Si la herramienta no devuelve fragmentos útiles, o los que devuelve no responden lo que se preguntó, comenzá tu respuesta exactamente con la frase "${NO_RESULTS_MESSAGE}" y después, con naturalidad, ofrecé reformular o sugerí un tema cercano. No improvises contenido que no esté en la biblioteca.`,
   "- No menciones la herramienta ni el proceso interno; respondé de forma natural.",
   "- No leas URLs ni códigos en voz alta: los artículos relacionados se muestran en pantalla como tarjetas.",

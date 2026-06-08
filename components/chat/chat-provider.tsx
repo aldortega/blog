@@ -33,6 +33,7 @@ type StreamEvent =
   | { type: "status"; value: string }
   | { type: "token"; value: string }
   | { type: "sources"; value: ChatSource[] }
+  | { type: "trim"; chars: number }
   | { type: "done"; hadResults: boolean }
   | { type: "error"; message: string };
 
@@ -145,6 +146,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               } else if (event.type === "token") {
                 answer += event.value;
                 updateMessage(assistantId, { content: answer, status: null });
+              } else if (event.type === "trim") {
+                // Recortar el tag <refs>...</refs> del texto mostrado.
+                answer = answer.slice(0, -event.chars).trimEnd();
+                updateMessage(assistantId, { content: answer });
               } else if (event.type === "sources") {
                 updateMessage(assistantId, { sources: event.value });
               } else if (event.type === "error") {

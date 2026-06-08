@@ -9,7 +9,8 @@ import {
   SEARCH_TOOL_NAME,
   toGeminiContents,
   toModelView,
-  toSources,
+  filterSourcesBySelection,
+  parseSelectedRefs,
 } from "@/lib/ai/chat";
 
 // Chatbot grounded en la biblioteca (fase 5). Streaming SSE con function calling:
@@ -214,14 +215,27 @@ export async function POST(request: Request) {
           }
         }
 
+        // --- Filtrar artículos según la selección del modelo ------------------
+        // El modelo incluye <refs>id1,id2</refs> al final con los artículos que
+        // realmente usó. Parseamos, recortamos el tag del texto visible y solo
+        // mostramos esos artículos como tarjetas.
+        const { cleanAnswer, selectedIds } = parseSelectedRefs(answer);
+        const charsToTrim = answer.length - cleanAnswer.length;
+
+        if (charsToTrim > 0) {
+          send({ type: "trim", chars: charsToTrim });
+        }
+
         // Tarjetas solo si hubo resultados Y el modelo no respondió "no hay contenido"
-        // (la búsqueda puede traer chunks flojos sobre el umbral que el modelo
-        // descarta; en ese caso no mostramos artículos para no contradecir el texto).
-        const saidNoContent = answer
+        const saidNoContent = cleanAnswer
           .toLowerCase()
           .includes(NO_RESULTS_MESSAGE.toLowerCase().replace(/\.$/, ""));
+
         if (hadResults && !saidNoContent) {
-          send({ type: "sources", value: toSources(results) });
+          const filteredSources = filterSourcesBySelection(results, selectedIds);
+          if (filteredSources.length > 0) {
+            send({ type: "sources", value: filteredSources });
+          }
         }
 
         send({ type: "done", hadResults });
