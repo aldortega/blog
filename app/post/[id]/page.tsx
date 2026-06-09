@@ -89,7 +89,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 const COMMENTS_PAGE_SIZE = 20;
 // Relacionados semánticos: mismo umbral coseno que /api/search.
-const RELATED_SIMILARITY_THRESHOLD = 0.5;
+const RELATED_SIMILARITY_THRESHOLD = 0.7;
 const RELATED_MATCH_COUNT = 4;
 
 function formatRelativeCommentTime(dateString: string): string {
@@ -242,12 +242,12 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
   const relatedMatchRows = isAiDisabled
     ? []
     : ((
-        await publicSupabase.rpc("match_related_posts", {
-          p_post_id: id,
-          match_threshold: RELATED_SIMILARITY_THRESHOLD,
-          match_count: RELATED_MATCH_COUNT,
-        })
-      ).data ?? []) as RelatedMatchRow[];
+      await publicSupabase.rpc("match_related_posts", {
+        p_post_id: id,
+        match_threshold: RELATED_SIMILARITY_THRESHOLD,
+        match_count: RELATED_MATCH_COUNT,
+      })
+    ).data ?? []) as RelatedMatchRow[];
   const relatedMatchIds = relatedMatchRows.map((match) => match.post_id);
 
   const { data: relatedPosts } =
@@ -814,30 +814,30 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                           quality={100}
                         />
                       </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center">
-                          <span className="font-bold text-white text-sm">
-                            {commentAuthorName}
-                          </span>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center mb-2">
+                          <div className="flex items-center">
+                            <span className="font-bold text-white text-sm">
+                              {commentAuthorName}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="text-[#bacbb6] text-[10px] uppercase tracking-widest"
+                            >
+                              {formatRelativeCommentTime(comment.created_at)}
+                            </span>
+                            {user && (comment.author_id === user.id || viewerRole === "admin") ? (
+                              <CommentDeleteAction
+                                commentId={comment.id}
+                                onDelete={deleteComment}
+                                className="md:opacity-0 md:group-hover:opacity-100 md:pointer-events-none md:group-hover:pointer-events-auto"
+                              />
+                            ) : null}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="text-[#bacbb6] text-[10px] uppercase tracking-widest"
-                          >
-                            {formatRelativeCommentTime(comment.created_at)}
-                          </span>
-                          {user && (comment.author_id === user.id || viewerRole === "admin") ? (
-                            <CommentDeleteAction
-                              commentId={comment.id}
-                              onDelete={deleteComment}
-                              className="md:opacity-0 md:group-hover:opacity-100 md:pointer-events-none md:group-hover:pointer-events-auto"
-                            />
-                          ) : null}
-                        </div>
+                        <p className="text-[#bacbb6] text-sm leading-relaxed">{comment.content}</p>
                       </div>
-                      <p className="text-[#bacbb6] text-sm leading-relaxed">{comment.content}</p>
-                    </div>
                     </div>
                   );
                 })
