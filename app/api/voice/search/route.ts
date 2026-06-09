@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { searchContent, MAX_QUERY_LENGTH } from "@/lib/ai/search";
+import { searchContent, MAX_QUERY_LENGTH, SOURCES_SIMILARITY_THRESHOLD } from "@/lib/ai/search";
 import { toModelView, toSources } from "@/lib/ai/chat";
 
 // Ejecuta la tool buscar_contenidos del asistente de voz (fase 6) y registra la
@@ -73,9 +73,14 @@ export async function POST(request: Request) {
     console.error("Error logging voice query", { error: logError.message });
   }
 
+  // El modelo recibe todos los resultados para tener contexto amplio; las tarjetas
+  // para el usuario se filtran con un umbral más estricto para evitar sugerencias
+  // poco relevantes.
+  const displayResults = results.filter((r) => r.similarity >= SOURCES_SIMILARITY_THRESHOLD);
+
   return NextResponse.json({
     forModel: toModelView(results),
-    sources: toSources(results),
+    sources: toSources(displayResults),
     hadResults,
   });
 }

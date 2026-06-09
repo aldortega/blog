@@ -8,7 +8,11 @@ import { embedQuery } from "@/lib/ai/embeddings";
 // gemini-embedding-2 y se matchea contra content_chunks vía pgvector.
 
 // Umbral de similitud coseno (1 = idéntico). Ajustable según datos reales (fase 7).
-export const SIMILARITY_THRESHOLD = 0.5;
+export const SIMILARITY_THRESHOLD = 0.6;
+// Umbral más exigente para las tarjetas que se muestran al usuario: la búsqueda
+// puede traer contexto útil para el modelo a 0.5, pero para recomendar un artículo
+// al usuario queremos mayor certeza de relevancia.
+export const SOURCES_SIMILARITY_THRESHOLD = 0.7;
 // Cantidad de chunks que pide la RPC antes de deduplicar por post.
 const CHUNK_MATCH_COUNT = 12;
 // Máximo de artículos devueltos tras deduplicar.
