@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: SectionPageProps): Promise<Me
     return { title: "Categoria no encontrada" };
   }
   return {
-    title: `${category.name} — Repositorio de Sistemas Inteligentes`,
+    title: `${category.name} — Sistemas Inteligentes`,
     description:
       category.description ?? `Articulos de la categoria ${category.name}.`,
   };

@@ -27,7 +27,7 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
-  title: "Repositorio de Sistemas Inteligentes",
+  title: "Sistemas Inteligentes",
   description: "Biblioteca de articulos sobre inteligencia artificial y sistemas inteligentes",
 };
 

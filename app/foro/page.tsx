@@ -11,7 +11,7 @@ import { ArrowUpDown, Clock, MessageSquare, Plus, TrendingUp } from "lucide-reac
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Foro — Repositorio de Sistemas Inteligentes",
+  title: "Foro — Sistemas Inteligentes",
   description: "Debate comunitario sobre inteligencia artificial y sistemas inteligentes.",
 };
 
@@ -164,22 +164,20 @@ export default async function ForumPage({ searchParams }: ForumPageProps) {
         <div className="mt-8 flex items-center gap-2 border-b border-[#3c4b3a]/30 pb-3">
           <Link
             href={buildHref({ tab: "top", page: 1 })}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${
-              tab === "top"
-                ? "bg-[#181c20] text-[#40fe6d]"
-                : "text-[#bacbb6] hover:text-white"
-            }`}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${tab === "top"
+              ? "bg-[#181c20] text-[#40fe6d]"
+              : "text-[#bacbb6] hover:text-white"
+              }`}
           >
             <TrendingUp size={15} />
             Top
           </Link>
           <Link
             href={buildHref({ tab: "nuevos", page: 1 })}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${
-              tab === "nuevos"
-                ? "bg-[#181c20] text-[#40fe6d]"
-                : "text-[#bacbb6] hover:text-white"
-            }`}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${tab === "nuevos"
+              ? "bg-[#181c20] text-[#40fe6d]"
+              : "text-[#bacbb6] hover:text-white"
+              }`}
           >
             <Clock size={15} />
             Nuevos
@@ -191,11 +189,10 @@ export default async function ForumPage({ searchParams }: ForumPageProps) {
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
               href={buildHref({ categoria: null, page: 1 })}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                !activeCategory
-                  ? "border-[#40fe6d]/60 bg-[#40fe6d]/10 text-[#40fe6d]"
-                  : "border-[#3c4b3a]/40 text-[#bacbb6] hover:border-[#40fe6d]/40 hover:text-white"
-              }`}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${!activeCategory
+                ? "border-[#40fe6d]/60 bg-[#40fe6d]/10 text-[#40fe6d]"
+                : "border-[#3c4b3a]/40 text-[#bacbb6] hover:border-[#40fe6d]/40 hover:text-white"
+                }`}
             >
               Todas
             </Link>
@@ -203,11 +200,10 @@ export default async function ForumPage({ searchParams }: ForumPageProps) {
               <Link
                 key={category.slug}
                 href={buildHref({ categoria: category.slug, page: 1 })}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                  activeCategory?.slug === category.slug
-                    ? "border-[#40fe6d]/60 bg-[#40fe6d]/10 text-[#40fe6d]"
-                    : "border-[#3c4b3a]/40 text-[#bacbb6] hover:border-[#40fe6d]/40 hover:text-white"
-                }`}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${activeCategory?.slug === category.slug
+                  ? "border-[#40fe6d]/60 bg-[#40fe6d]/10 text-[#40fe6d]"
+                  : "border-[#3c4b3a]/40 text-[#bacbb6] hover:border-[#40fe6d]/40 hover:text-white"
+                  }`}
               >
                 {category.name}
               </Link>
