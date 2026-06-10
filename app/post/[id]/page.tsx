@@ -1,10 +1,8 @@
 import PostOwnerActions from "@/components/post-owner-actions";
 import PostAverageRating from "@/components/post-average-rating";
 import PostRatingControl from "@/components/post-rating-control";
-import CommentDeleteAction from "@/components/comment-delete-action";
 import MarkdownRenderer from "@/components/markdown-renderer";
 import PostCard from "@/components/post-card";
-import SubmitButton from "@/components/submit-button";
 import ScrollToTopOnMount from "./scroll-to-top-on-mount";
 import SummaryStatusSync from "./summary-status-sync";
 import RegenerateSummaryButton from "./regenerate-summary-button";
@@ -23,19 +21,11 @@ import { after } from "next/server";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Sparkles, Eye, MessageSquare, MessagesSquare, Plus } from "lucide-react";
+import { Sparkles, Eye, MessagesSquare, Plus } from "lucide-react";
 
 type PostPageProps = {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ error?: string; commentsPage?: string }>;
-};
-
-type CommentRow = {
-  id: string;
-  author_id: string;
-  content: string;
-  created_at: string;
-  profiles: RelationOneOrMany<{ display_name: string | null; avatar_url: string | null }>;
+  searchParams?: Promise<{ error?: string }>;
 };
 
 type RelatedPostRow = {
@@ -74,11 +64,6 @@ type PostRow = {
 const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: "No tienes permisos para borrar este post.",
   delete: "No se pudo borrar el post. Intenta nuevamente.",
-  comment_unauthorized: "Debes iniciar sesion para comentar.",
-  comment_invalid: "El comentario debe tener entre 1 y 1000 caracteres.",
-  comment_create: "No se pudo publicar el comentario. Intenta nuevamente.",
-  comment_delete_unauthorized: "No tienes permisos para borrar este comentario.",
-  comment_delete: "No se pudo borrar el comentario. Intenta nuevamente.",
   rating_unauthorized: "Debes iniciar sesion para puntuar.",
   rating_invalid: "La puntuacion debe estar entre 0.5 y 5.0.",
   rating_save: "No se pudo guardar tu puntuacion. Intenta nuevamente.",
@@ -87,57 +72,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   embeddings_regenerate: "No se pudo regenerar los embeddings. Intenta nuevamente.",
 };
 
-const COMMENTS_PAGE_SIZE = 20;
 // Relacionados semánticos: mismo umbral coseno que /api/search.
 const RELATED_SIMILARITY_THRESHOLD = 0.7;
 const RELATED_MATCH_COUNT = 4;
 
-function formatRelativeCommentTime(dateString: string): string {
-  const timestamp = new Date(dateString).getTime();
-  if (Number.isNaN(timestamp)) {
-    return "hace un momento";
-  }
-
-  const diffMs = Date.now() - timestamp;
-  const diffMinutes = Math.floor(diffMs / (1000 * 60));
-  if (diffMinutes < 1) {
-    return "hace un momento";
-  }
-  if (diffMinutes < 60) {
-    return `hace ${diffMinutes} min`;
-  }
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) {
-    return `hace ${diffHours} h`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) {
-    return `hace ${diffDays} d`;
-  }
-
-  const diffWeeks = Math.floor(diffDays / 7);
-  if (diffWeeks < 5) {
-    return `hace ${diffWeeks} sem`;
-  }
-
-  const diffMonths = Math.floor(diffDays / 30);
-  if (diffMonths < 12) {
-    return `hace ${diffMonths} mes`;
-  }
-
-  const diffYears = Math.floor(diffDays / 365);
-  return `hace ${diffYears} ano`;
-}
-
 export default async function PostPage({ params, searchParams }: PostPageProps) {
   const { id } = await params;
-  const { error: errorCode, commentsPage } = searchParams ? await searchParams : {};
-  const parsedCommentsPage = Number.parseInt(commentsPage ?? "1", 10);
-  const currentCommentsPage = Number.isFinite(parsedCommentsPage) && parsedCommentsPage > 0 ? parsedCommentsPage : 1;
-  const commentsFrom = (currentCommentsPage - 1) * COMMENTS_PAGE_SIZE;
-  const commentsTo = commentsFrom + COMMENTS_PAGE_SIZE - 1;
+  const { error: errorCode } = searchParams ? await searchParams : {};
   const supabase = await createClient();
   const publicSupabase = publicServerClient;
   const {
@@ -178,8 +119,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
 
   const [
     { data: viewerProfile },
-    { data: comments },
-    { count: commentsCount },
     { count: viewsCount },
     { data: postRatings },
     { data: viewerRatingRow },
@@ -188,16 +127,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       user
         ? supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
         : Promise.resolve({ data: null }),
-      supabase
-        .from("comments")
-        .select("id, author_id, content, created_at, profiles(display_name, avatar_url)")
-        .eq("post_id", id)
-        .order("created_at", { ascending: false })
-        .range(commentsFrom, commentsTo),
-      supabase
-        .from("comments")
-        .select("id", { count: "exact", head: true })
-        .eq("post_id", id),
       publicSupabase
         .from("content_views")
         .select("id", { count: "exact", head: true })
@@ -213,8 +142,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
 
   const viewerRole = typeof viewerProfile?.role === "string" ? viewerProfile.role : null;
   const canManage = canManageContent(viewerRole);
-  const commentList = (comments ?? []) as CommentRow[];
-  const totalComments = commentsCount ?? 0;
   const totalViews = viewsCount ?? 0;
 
   // Registramos la apertura del post fuera del render (logueado o anónimo). La RLS
@@ -225,9 +152,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
       user_id: user?.id ?? null,
     });
   });
-  const totalCommentPages = Math.max(1, Math.ceil(totalComments / COMMENTS_PAGE_SIZE));
-  const hasPreviousCommentsPage = currentCommentsPage > 1;
-  const hasNextCommentsPage = currentCommentsPage < totalCommentPages;
+
   const postRatingRows = (postRatings ?? []) as RatingRow[];
   const postScores = postRatingRows
     .map((rating) => Number(rating.score))
@@ -304,17 +229,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     authorName,
     { background: "101418", color: "e0e3e8" },
   );
-  const commentsPageHref = (page: number) => {
-    const params = new URLSearchParams();
-    if (errorCode) {
-      params.set("error", errorCode);
-    }
-    if (page > 1) {
-      params.set("commentsPage", String(page));
-    }
-    const query = params.toString();
-    return query.length > 0 ? `/post/${id}?${query}` : `/post/${id}`;
-  };
+
 
   async function deletePost() {
     "use server";
@@ -359,79 +274,7 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     redirect("/");
   }
 
-  async function createComment(formData: FormData) {
-    "use server";
 
-    const supabaseServer = await createClient();
-    const {
-      data: { user: actionUser },
-    } = await supabaseServer.auth.getUser();
-
-    if (!actionUser) {
-      redirect(`/post/${id}?error=comment_unauthorized`);
-    }
-
-    const content = String(formData.get("content") ?? "").trim();
-    if (!content || content.length > 1000) {
-      redirect(`/post/${id}?error=comment_invalid`);
-    }
-
-    const { error: commentError } = await supabaseServer.from("comments").insert({
-      post_id: id,
-      author_id: actionUser.id,
-      content,
-    });
-
-    if (commentError) {
-      redirect(`/post/${id}?error=comment_create`);
-    }
-
-    revalidatePath(`/post/${id}`);
-  }
-
-  async function deleteComment(formData: FormData) {
-    "use server";
-
-    const commentId = String(formData.get("comment_id") ?? "").trim();
-    if (!commentId) {
-      redirect(`/post/${id}?error=comment_delete`);
-    }
-
-    const supabaseServer = await createClient();
-    const {
-      data: { user: actionUser },
-    } = await supabaseServer.auth.getUser();
-
-    if (!actionUser) {
-      redirect(`/post/${id}?error=comment_delete_unauthorized`);
-    }
-
-    const [{ data: targetComment }, { data: actionProfile }] = await Promise.all([
-      supabaseServer.from("comments").select("id, author_id").eq("id", commentId).maybeSingle(),
-      supabaseServer.from("profiles").select("role").eq("id", actionUser.id).maybeSingle(),
-    ]);
-
-    if (!targetComment) {
-      redirect(`/post/${id}?error=comment_delete`);
-    }
-
-    const actionRole = typeof actionProfile?.role === "string" ? actionProfile.role : null;
-    const canDeleteComment = actionUser.id === targetComment.author_id || actionRole === "admin";
-    if (!canDeleteComment) {
-      redirect(`/post/${id}?error=comment_delete_unauthorized`);
-    }
-
-    const { error: deleteCommentError } = await supabaseServer
-      .from("comments")
-      .delete()
-      .eq("id", commentId);
-
-    if (deleteCommentError) {
-      redirect(`/post/${id}?error=comment_delete`);
-    }
-
-    revalidatePath(`/post/${id}`);
-  }
 
   async function upsertRating(formData: FormData) {
     "use server";
@@ -672,10 +515,6 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
                   <Eye className="h-4 w-4" />
                   {totalViews.toLocaleString("es-AR")}
                 </span>
-                <span className="inline-flex items-center gap-1.5" title="Comentarios">
-                  <MessageSquare className="h-4 w-4" />
-                  {totalComments.toLocaleString("es-AR")}
-                </span>
               </div>
               {canManage ? <PostOwnerActions postId={id} onDelete={deletePost} /> : null}
 
@@ -771,130 +610,15 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
 
           <MarkdownRenderer content={postRow.content} className="mt-10 max-w-3xl" />
 
-          {/* Comments Section */}
+          {/* Rating Section */}
           <section className="mt-24 pt-12 border-t border-[#3c4b3a]/30">
-            <div className="mb-10">
+            <div className="max-w-3xl">
               <PostRatingControl
                 isAuthenticated={Boolean(user)}
                 initialRating={normalizedViewerRating}
                 onRate={upsertRating}
               />
             </div>
-            <h3 className="text-xl font-sans font-bold text-white mb-8 tracking-wide uppercase">
-              Comentarios ({totalComments})
-            </h3>
-
-            <div className="space-y-6">
-              {commentList.length === 0 ? (
-                <div className="rounded-xl border border-[#3c4b3a]/30 bg-[#181c20] px-6 py-5 text-sm text-[#bacbb6]">
-                  Todavia no hay comentarios. Se la primera persona en comentar.
-                </div>
-              ) : (
-                commentList.map((comment) => {
-                  const commentAuthorName = relationText(
-                    comment.profiles,
-                    (profile) => profile.display_name,
-                    "Usuario",
-                  );
-                  const commentAvatar = resolveAvatarSrc(
-                    relationText(comment.profiles, (profile) => profile.avatar_url, ""),
-                    commentAuthorName,
-                    { background: "262a2f", color: "e0e3e8" },
-                  );
-
-                  return (
-                    <div key={comment.id} className="group bg-[#181c20] rounded-xl p-6 flex gap-4">
-                      <div className="w-10 h-10 rounded-full bg-[#262a2f] flex-shrink-0 overflow-hidden border border-[#3c4b3a]/30 relative">
-                        <Image
-                          src={commentAvatar}
-                          alt={commentAuthorName}
-                          fill
-                          sizes="40px"
-                          className="object-cover"
-                          quality={100}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-2">
-                          <div className="flex items-center">
-                            <span className="font-bold text-white text-sm">
-                              {commentAuthorName}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="text-[#bacbb6] text-[10px] uppercase tracking-widest"
-                            >
-                              {formatRelativeCommentTime(comment.created_at)}
-                            </span>
-                            {user && (comment.author_id === user.id || viewerRole === "admin") ? (
-                              <CommentDeleteAction
-                                commentId={comment.id}
-                                onDelete={deleteComment}
-                                className="md:opacity-0 md:group-hover:opacity-100 md:pointer-events-none md:group-hover:pointer-events-auto"
-                              />
-                            ) : null}
-                          </div>
-                        </div>
-                        <p className="text-[#bacbb6] text-sm leading-relaxed">{comment.content}</p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-            {totalCommentPages > 1 ? (
-              <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-[#3c4b3a]/20 bg-[#0b0f12] px-4 py-3 text-xs uppercase tracking-[0.14em] text-[#bacbb6]">
-                <span>
-                  Pagina {currentCommentsPage} de {totalCommentPages}
-                </span>
-                <div className="flex items-center gap-2">
-                  {hasPreviousCommentsPage ? (
-                    <Link
-                      href={commentsPageHref(currentCommentsPage - 1)}
-                      className="rounded-md border border-[#3c4b3a]/35 px-3 py-1.5 text-[#e0e3e8] transition hover:border-[#40fe6d]/60 hover:text-[#40fe6d]"
-                    >
-                      Anterior
-                    </Link>
-                  ) : null}
-                  {hasNextCommentsPage ? (
-                    <Link
-                      href={commentsPageHref(currentCommentsPage + 1)}
-                      className="rounded-md border border-[#3c4b3a]/35 px-3 py-1.5 text-[#e0e3e8] transition hover:border-[#40fe6d]/60 hover:text-[#40fe6d]"
-                    >
-                      Siguiente
-                    </Link>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            {/* Comment Input */}
-            {user ? (
-              <form
-                action={createComment}
-                className="mt-8 bg-[#0b0f12] rounded-xl p-4 border border-[#3c4b3a]/30 focus-within:border-[#40fe6d] transition-colors"
-              >
-                <textarea
-                  name="content"
-                  required
-                  maxLength={1000}
-                  placeholder="Comparte tu reflexion..."
-                  className="w-full bg-transparent text-[#e0e3e8] placeholder:text-[#bacbb6]/50 outline-none resize-none min-h-[100px] text-sm font-body"
-                />
-                <div className="flex justify-end mt-2">
-                  <SubmitButton
-                    idleLabel="Publicar"
-                    pendingLabel="Publicando..."
-                    className="bg-[#40fe6d] text-[#00390f] px-6 py-2 rounded-lg text-xs font-bold tracking-widest uppercase hover:bg-[#00e054] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                </div>
-              </form>
-            ) : (
-              <div className="mt-8 rounded-xl border border-[#3c4b3a]/30 bg-[#0b0f12] px-5 py-4 text-sm text-[#bacbb6]">
-                Inicia sesion con Google para publicar comentarios.
-              </div>
-            )}
           </section>
         </div>
 

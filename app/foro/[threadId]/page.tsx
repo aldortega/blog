@@ -13,7 +13,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { CornerDownRight, FileText, MessageSquare } from "lucide-react";
+import { CornerDownRight, FileText, MessageSquare, Pencil } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -182,6 +182,7 @@ export default async function ThreadPage({ params, searchParams }: ThreadPagePro
     ? supabasePublic.storage.from("forum-images").getPublicUrl(threadRow.image_path).data.publicUrl
     : null;
   const canDeleteThread = Boolean(user) && (user!.id === threadRow.author_id || isAdmin);
+  const canEditThread = Boolean(user) && (user!.id === threadRow.author_id || isAdmin);
   const linkedPostRow = (linkedPost ?? null) as { id: string; title: string } | null;
 
   // ---- Server actions ----
@@ -395,14 +396,26 @@ export default async function ThreadPage({ params, searchParams }: ThreadPagePro
             isAuthenticated={Boolean(user)}
             orientation="horizontal"
           />
-          {canDeleteThread ? (
-            <ForumDeleteAction
-              action={deleteThread}
-              title="Eliminar hilo"
-              description="Esta acción no se puede deshacer. Se eliminarán el hilo y todas sus respuestas de forma permanente."
-              triggerLabel="Eliminar hilo"
-            />
-          ) : null}
+          <div className="flex items-center gap-4">
+            {canEditThread ? (
+              <Link
+                href={`/foro/${threadRow.id}/editar`}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[#bacbb6] transition-colors hover:text-[#40fe6d]"
+                title="Editar debate"
+              >
+                <Pencil size={13} />
+                <span>Editar debate</span>
+              </Link>
+            ) : null}
+            {canDeleteThread ? (
+              <ForumDeleteAction
+                action={deleteThread}
+                title="Eliminar hilo"
+                description="Esta acción no se puede deshacer. Se eliminarán el hilo y todas sus respuestas de forma permanente."
+                triggerLabel="Eliminar hilo"
+              />
+            ) : null}
+          </div>
         </div>
       </article>
 

@@ -85,15 +85,15 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     if (
       !title ||
       !content ||
-      !(imageFile instanceof File) ||
-      imageFile.size === 0 ||
       (!categoryId && !newCategory)
     ) {
       redirect("/nuevo-post?error=invalid");
     }
 
-    if (imageFile.size > MAX_IMAGE_SIZE_BYTES || !ALLOWED_IMAGE_TYPES.has(imageFile.type)) {
-      redirect("/nuevo-post?error=image_invalid");
+    if (imageFile instanceof File && imageFile.size > 0) {
+      if (imageFile.size > MAX_IMAGE_SIZE_BYTES || !ALLOWED_IMAGE_TYPES.has(imageFile.type)) {
+        redirect("/nuevo-post?error=image_invalid");
+      }
     }
 
     const displayName =
@@ -116,20 +116,23 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       redirect("/nuevo-post?error=profile");
     }
 
-    const fileNameParts = imageFile.name.split(".");
-    const rawExt = fileNameParts.length > 1 ? fileNameParts.pop() ?? "" : "";
-    const extension = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-    const imagePath = `${actionUser.id}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    let imagePath: string | null = null;
+    if (imageFile instanceof File && imageFile.size > 0) {
+      const fileNameParts = imageFile.name.split(".");
+      const rawExt = fileNameParts.length > 1 ? fileNameParts.pop() ?? "" : "";
+      const extension = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+      imagePath = `${actionUser.id}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
 
-    const { error: uploadError } = await supabaseServer.storage
-      .from("post-images")
-      .upload(imagePath, imageFile, {
-        contentType: imageFile.type,
-        upsert: false,
-      });
+      const { error: uploadError } = await supabaseServer.storage
+        .from("post-images")
+        .upload(imagePath, imageFile, {
+          contentType: imageFile.type,
+          upsert: false,
+        });
 
-    if (uploadError) {
-      redirect("/nuevo-post?error=image_upload");
+      if (uploadError) {
+        redirect("/nuevo-post?error=image_upload");
+      }
     }
 
     const { categoryId: resolvedCategoryId, error: categoryError } = await resolveCategoryId(
@@ -138,7 +141,9 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
     );
 
     if (categoryError) {
-      await supabaseServer.storage.from("post-images").remove([imagePath]);
+      if (imagePath) {
+        await supabaseServer.storage.from("post-images").remove([imagePath]);
+      }
       redirect("/nuevo-post?error=category");
     }
 
@@ -155,7 +160,9 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
       .single();
 
     if (postError || !post) {
-      await supabaseServer.storage.from("post-images").remove([imagePath]);
+      if (imagePath) {
+        await supabaseServer.storage.from("post-images").remove([imagePath]);
+      }
       redirect("/nuevo-post?error=post");
     }
 
@@ -216,7 +223,7 @@ export default async function NewPostPage({ searchParams }: NewPostPageProps) {
           />
         </div>
 
-        <PostImageUpload required emptyLabel="Subir portada o arrastrar y soltar" />
+        <PostImageUpload emptyLabel="Subir portada o arrastrar y soltar" />
 
         <CategorySelect required categories={categories ?? []} />
 
